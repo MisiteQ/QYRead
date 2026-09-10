@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# 持久化授权目录列表，供服务进程读取
+ACCESSIBLE_PATHS_FILE="${TRIM_PKGVAR}/accessible_paths.txt"
+
+if [ -n "${TRIM_DATA_ACCESSIBLE_PATHS}" ]; then
+    printf '%s' "${TRIM_DATA_ACCESSIBLE_PATHS}" | tr ':' '\n' | sed '/^[[:space:]]*$/d' > "${ACCESSIBLE_PATHS_FILE}"
+else
+    # 为空时清空文件
+    : > "${ACCESSIBLE_PATHS_FILE}"
+fi
+
+exit 0

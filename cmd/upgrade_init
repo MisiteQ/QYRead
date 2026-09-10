@@ -1,0 +1,4 @@
+#!/bin/bash
+# upgrade_init: 升级前初始化 (默认无操作)
+
+exit 0

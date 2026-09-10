@@ -1,0 +1,39 @@
+#!/bin/bash
+LOG="${TRIM_TEMP_LOGFILE:-/tmp/qyread_install.log}"
+exec >> "$LOG" 2>&1
+set -x
+
+echo "=== 惬意阅读 安装初始化开始 ==="
+echo "时间: $(date)"
+echo "应用名称: ${TRIM_APPNAME}"
+echo "应用版本: ${TRIM_APPVER}"
+echo "用户名: ${TRIM_USERNAME}"
+echo "用户组: ${TRIM_GROUPNAME}"
+echo "数据共享路径: ${TRIM_DATA_SHARE_PATHS}"
+echo "应用目录: ${TRIM_APPDEST}"
+echo "数据目录: ${TRIM_PKGVAR}"
+echo "临时目录: ${TRIM_PKGTMP}"
+
+# 获取用户设置的端口（从安装向导）
+APP_PORT="${custom_port:-8344}"
+echo "用户设置端口: ${APP_PORT}"
+
+# 更新 UI 配置中的端口
+UI_CONFIG="${TRIM_APPDEST}/ui/config"
+if [ -f "$UI_CONFIG" ]; then
+    sed -i "s/\"port\": \"[^\"]*\"/\"port\": \"${APP_PORT}\"/" "$UI_CONFIG"
+    echo "已更新 UI 配置端口为: ${APP_PORT}"
+fi
+
+# 更新 manifest 中的 service_port
+MANIFEST="${TRIM_APPDEST}/manifest"
+if [ -f "$MANIFEST" ]; then
+    sed -i "s/^service_port=.*/service_port=${APP_PORT}/" "$MANIFEST"
+    echo "已更新 manifest service_port 为: ${APP_PORT}"
+fi
+
+# 注意: port.conf 的保存已移到 install_callback，因为 TRIM_PKGVAR 在 install_init 阶段可能不存在
+
+echo "=== 安装初始化完成 ==="
+
+exit 0

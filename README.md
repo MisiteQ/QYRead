@@ -1,0 +1,126 @@
+# 惬意阅读 QYRead
+
+<p>
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.9-blue">
+  <img alt="fnOS" src="https://img.shields.io/badge/fnOS-x86%20%7C%20arm64-success">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-orange">
+</p>
+
+飞牛 fnOS 上的私人书库与阅读中心（FPK 原生应用）：**搜书、管书、看书一站搞定**。所有书籍与数据仅保存在你的 NAS 本机，不上传任何第三方服务器。
+
+> **本项目基于「落地长安 轻阅读」改造**，小说搜索下载模块整合了 [zsyo/go-novel](https://github.com/zsyo/go-novel) 的书源与爬虫逻辑，在此感谢两位作者的开源分享。
+
+- 当前版本：**v0.1.9**
+- 作者：**Misite齊**
+- 适用平台：fnOS **x86 + arm64**（依赖应用中心的 Node.js v22，最低系统版本 1.1.8）
+- 默认端口：**8344**（安装向导可改）
+- 默认账号：`admin` / `admin123`（登录后请及时修改）
+
+## ✨ 功能
+
+- **📚 多格式书库**：TXT / EPUB / MOBI / AZW3 / PDF / CBZ / CBR / CB7，拖拽批量导入，自动识别书名、作者、出版社；书架支持 **大封面 / 中封面 / 小封面 / 详细列表** 四种视图（详细列表显示作者、读到的章节与阅读进度），公共书库 + 个人书库、收藏夹、搜索排序、阅读统计
+- **🔍 小说搜索下载**（整合 go-novel）：聚合多个书源搜索小说，一键下载 EPUB / TXT 自动入库；下载文件夹可自由选择（默认你设置的书籍文件夹，选新文件夹会自动注册为个人书库）；全局任务面板实时显示阶段与百分比，支持 **暂停 / 继续 / 取消**，刷新页面自动恢复，书源卡死的「幽灵任务」60 秒内自动判失败并清理；已下载文件支持另存、删除与打开所在文件夹
+- **📖 沉浸阅读**：目录导航、仿真翻页 / 上下滚动、字体字号行距边距与多款主题随心设置（切换主题时非阅读区外壳背景同步），划线高亮、批注笔记，阅读进度自动保存
+- **🔊 听书**：默认 Edge 在线语音（晓晓、云希等多种音色，无需下载模型），保留本地离线引擎入口
+- **📝 读后感**：随时为整本书撰写心得，自动统计字数与累计阅读时长
+
+## 📦 安装
+
+### 方式一：FnDepot 应用源（推荐）
+
+在飞牛 fnOS 上安装 [FnDepot](https://github.com/EWEDLCM/FnDepot) 客户端后，添加作者的应用源即可搜索「惬意阅读」一键安装 / 升级：
+
+```
+https://github.com/MisiteQ/FnDepot
+```
+
+### 方式二：手动安装 FPK
+
+1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.9-x86.fpk`（x86 机型）或 `qyread-0.1.9-arm.fpk`（arm64 机型）
+2. 飞牛 OS → **应用中心** → 左下角 **手动安装** → 选择 fpk 文件
+3. 按安装向导完成配置：
+   - **端口与管理员**：应用端口（默认 **8344**）、管理员用户名与密码
+   - **数据存储子目录**：在所选应用数据存储空间中创建，默认 `qyread`，用于存放数据库与上传的书籍
+   - **现有书籍文件夹（可选）**：填写 NAS 中已有书籍文件夹的**绝对路径**（如 `/vol1/1000/书籍`），安装后会自动注册为公共书库并递归导入；安装时仅授予读取权限，不会移动、修改或删除原文件。留空可稍后在应用内「书库管理」中添加
+4. 安装后从桌面打开 **惬意阅读**，或直接访问 `http://<NAS_IP>:8344`
+
+> 若「手动安装」入口被关闭，SSH 执行：`appcenter-cli manual-install enable`
+> 卸载时可选择保留或删除书库数据；保留数据重装后阅读进度与书架继续可用。
+
+## 🛠 从源码打包
+
+需要安装 [fnpack](https://developer.fnnas.com/docs/cli/fnpack/) 命令行工具。
+
+### Windows（PowerShell 5+）
+
+项目根目录提供一键双架构构建脚本，会自动递增补丁版本号、准备两份构建树、替换 arm64 原生模块：
+
+```powershell
+# 打包前先在 Linux 环境（或 WSL / fnOS）安装服务端依赖（sqlite3 为 Linux 原生模块）：
+#   cd app/server && npm install --omit=dev
+.\build.ps1                 # 自动 patch +1（0.1.9 → 0.1.10），同步 manifest / package.json / 前端 ?v=
+.\build.ps1 -Version 0.2.0  # 指定版本号
+.\build.ps1 -NoBump         # 不修改版本号，按 manifest 当前版本打包
+# 产物：qyread-<版本>-x86.fpk 与 qyread-<版本>-arm.fpk
+```
+
+### Linux / fnOS
+
+```bash
+cd app/server && npm install --omit=dev   # 安装依赖（含当前机器架构的 sqlite3 原生模块）
+cd ../..
+fnpack build --directory .                # x86 机产出 x86 包
+```
+
+> arm64 包使用 `build-assets/node_sqlite3-linux-arm64.node` 预编译原生模块（随仓库携带，仅构建时使用，不会打入 x86 包）。
+> 每次发布新版本前，除脚本自动递增版本号外，还需在 `manifest` 的 `changelog` 中补上当次更新内容（关于页会读取展示）。
+
+## 📁 项目结构
+
+```
+manifest                飞牛应用清单（版本、显示名、端口、依赖、更新日志）
+wizard/install          安装向导（端口 / 管理员 / 数据目录 / 现有书籍文件夹）
+wizard/uninstall        卸载向导（保留或删除数据）
+cmd/                    飞牛生命周期脚本（安装回调、启动、卸载清理等）
+config/                 飞牛权限与资源声明（以 package 用户 qyread 运行）
+app/ui/                 前端：编译后静态资源 + 明文外挂增强 enhancer.js
+  index.html            前端入口
+  assets/enhancer.js    壳层增强（书架视图、关于致谢、自动入架等，不侵入 React bundle）
+app/server/             后端：Node.js + Express + SQLite
+  server.js             HTTP 服务入口
+  bootstrap-library.js  安装引导：注册向导选择的书籍文件夹并首次扫描
+  novel-ui/             小说搜索下载独立页面（SSE 实时任务）
+  routes/               API 路由（书籍、阅读器、小说下载、TTS、统计等）
+  services/             小说爬虫 / 下载器 / 进度管理 / EPUB 生成等
+  parsers/ utils/       格式解析器、扫描队列、文件监听、工具模块
+  rules/                小说书源规则（JSON）
+build-assets/           arm64 预编译原生模块（仅构建时使用）
+build.ps1               Windows 双架构一键打包脚本
+```
+
+## 🔒 隐私与安全
+
+- 所有数据库、配置、书籍文件均保存在 NAS 本地（应用数据空间或你指定的书库文件夹）
+- JWT 密钥在首次启动时随机生成（应用数据目录 `.secret`），仓库中**没有任何硬编码密钥**
+- 小说搜索仅在你主动发起时访问第三方书源，搜索结果版权归原作者所有，本功能仅供学习交流，请支持正版
+
+## 🙏 致谢
+
+- 落地长安「轻阅读」：书库管理与沉浸阅读的基础项目（原项目地址以原作者发布为准）
+- [zsyo/go-novel](https://github.com/zsyo/go-novel)：小说搜索书源与爬虫模块
+- 飞牛 fnOS 与 [FnDepot](https://github.com/EWEDLCM/FnDepot)
+
+## 📋 版本历史
+
+| 版本 | 内容 |
+|---|---|
+| v0.1.9 | 修复书架「详细列表」视图书籍信息不显示（文件名带 .epub/.txt 扩展名与页面显示名匹配失败）；列表视图不再显示封面缩略图；移除调试日志 |
+| v0.1.5 | 下载任务支持暂停 / 继续 / 取消；书源卡死幽灵任务根治（60 秒无心跳判失败 + 刷新页面主动回收）；详细列表补充作者 / 章节 / 进度；修复「我的」页用户卡片点击报错；关于页新增上游致谢；修复升级后 NAS 桌面图标不刷新 |
+| v0.1.4 | 修复「语音配置」点击报错；听书默认 Edge 在线引擎；关于页版本号自动同步；小说搜索显式下载按钮；阅读自动入架；书架四种视图正式可用 |
+| v0.1.3 | 书架四种视图切换；阅读器外壳主题跟随；默认端口改 8344；TTS 恢复；AI / 成就模块彻底移除；适配 x86 + arm64 |
+| v0.1.1 | 下载文件夹自由选择、全局实时下载任务面板、已下载文件另存 / 删除 / 打开文件夹；下线 AI 助手、成就与分享 |
+| v0.1.0 | 首个版本：多格式书库、沉浸阅读、小说搜索下载、批注笔记、读后感与阅读统计 |
+
+## 📄 许可证
+
+[MIT License](LICENSE) © 2026 Misite齊

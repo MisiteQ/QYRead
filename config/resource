@@ -1,0 +1,22 @@
+{
+    "data-share": {
+        "shares": [
+            {
+                "name": "qyread",
+                "permission": {
+                    "rw": [
+                        "qyread"
+                    ]
+                }
+            },
+            {
+                "name": "qyread/data",
+                "permission": {
+                    "rw": [
+                        "qyread"
+                    ]
+                }
+            }
+        ]
+    }
+}

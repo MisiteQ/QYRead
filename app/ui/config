@@ -1,0 +1,16 @@
+{
+    ".url": {
+        "qyread.application": {
+            "title": "惬意阅读",
+            "icon": "images/icon_{0}_v015.png",
+            "type": "url",
+            "protocol": "http",
+            "port": "${custom_port}",
+            "url": "/",
+            "allUsers": true,
+            "control": {
+                "portPerm": "editable"
+            }
+        }
+    }
+}

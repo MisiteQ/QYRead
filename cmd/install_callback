@@ -1,0 +1,77 @@
+#!/bin/bash
+# 安装回调 - 在解压后执行
+LOG="${TRIM_TEMP_LOGFILE:-/tmp/qyread_install_callback.log}"
+exec >> "$LOG" 2>&1
+set -x
+
+echo "=== 惬意阅读 安装回调开始 ==="
+echo "时间: $(date)"
+echo "TRIM_PKGVAR: ${TRIM_PKGVAR}"
+
+# 确保 PKGVAR 目录存在
+mkdir -p "${TRIM_PKGVAR}"
+
+# 获取用户设置的端口（从安装向导）
+APP_PORT="${custom_port:-8344}"
+echo "用户设置端口: ${APP_PORT}"
+
+# 保存端口配置供 main 脚本使用
+echo "APP_PORT=${APP_PORT}" > "${TRIM_PKGVAR}/port.conf"
+echo "端口配置已保存到: ${TRIM_PKGVAR}/port.conf"
+
+# 验证写入
+if [ -f "${TRIM_PKGVAR}/port.conf" ]; then
+    cat "${TRIM_PKGVAR}/port.conf"
+    echo "端口配置验证成功"
+else
+    echo "警告：端口配置文件创建失败！"
+fi
+
+# 保存用户选择的「现有书籍文件夹」路径（可留空）
+BOOKS_CONF="${TRIM_PKGVAR}/books_dir.conf"
+BOOKS_DIR_CLEAN="$(printf '%s' "${wizard_books_dir:-}" | sed 's/[[:space:]]*$//;s/^[[:space:]]*//')"
+{
+    echo "# 安装向导中选择的现有书籍文件夹（由 install_callback 生成，请勿手改格式）"
+    echo "BOOKS_LIBRARY_PATH=${BOOKS_DIR_CLEAN}"
+    echo "BOOKS_LIBRARY_NAME=我的书库"
+} > "${BOOKS_CONF}"
+echo "书籍文件夹配置: ${BOOKS_DIR_CLEAN:-（未填写，跳过）}"
+
+# 授予应用运行用户对该文件夹的只读权限（不移动/修改/删除任何用户文件）
+# 优先使用 POSIX ACL：父级目录仅授予穿越(x)权限，目标目录递归授予读(rx)权限；
+# 系统不支持 setfacl 时回退为「属组 + 组读权限」方式
+APP_RUN_USER="qyread"
+if [ -n "${BOOKS_DIR_CLEAN}" ] && [ -d "${BOOKS_DIR_CLEAN}" ]; then
+    echo "开始为 ${APP_RUN_USER} 授权书籍文件夹: ${BOOKS_DIR_CLEAN}"
+    if command -v setfacl >/dev/null 2>&1; then
+        # 逐级父目录授予穿越权限（只 x，不允许列举内容）
+        P="${BOOKS_DIR_CLEAN}"
+        while [ "$P" != "/" ] && [ -n "$P" ]; do
+            setfacl -m "u:${APP_RUN_USER}:x" "$P" 2>/dev/null || true
+            P="$(dirname "$P")"
+        done
+        # 目标目录递归授予读权限（目录 rwx 中 r 允许列举、x 允许进入）
+        setfacl -R -m "u:${APP_RUN_USER}:rX" "${BOOKS_DIR_CLEAN}" 2>/dev/null \
+            && setfacl -R -d -m "u:${APP_RUN_USER}:rX" "${BOOKS_DIR_CLEAN}" 2>/dev/null || true
+        echo "已通过 setfacl 授予读取权限（含后续新建文件的默认 ACL）"
+    else
+        echo "系统无 setfacl，回退属组授权方式"
+        chgrp -R "${APP_RUN_USER}" "${BOOKS_DIR_CLEAN}" 2>/dev/null || true
+        chmod -R g+rX "${BOOKS_DIR_CLEAN}" 2>/dev/null || true
+        P="$(dirname "${BOOKS_DIR_CLEAN}")"
+        while [ "$P" != "/" ] && [ -n "$P" ]; do
+            chmod g+x "$P" 2>/dev/null || true
+            P="$(dirname "$P")"
+        done
+        echo "已通过属组方式授予读取权限"
+    fi
+elif [ -n "${BOOKS_DIR_CLEAN}" ]; then
+    echo "警告：向导填写的书籍文件夹当前不存在: ${BOOKS_DIR_CLEAN}（可能存储盘尚未挂载）；应用启动后会在日志中提示，可稍后在书库管理中手动添加"
+fi
+
+# 写入凭据标记文件，通知 Node.js 应用 Wizard 中的管理员凭据
+touch "${TRIM_PKGVAR}/.apply_credentials"
+echo "已创建凭据标记文件: ${TRIM_PKGVAR}/.apply_credentials"
+
+echo "=== 安装回调完成 ==="
+exit 0

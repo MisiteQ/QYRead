@@ -1,0 +1,24 @@
+[
+  {
+    "stepTitle": "确认卸载",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "卸载将删除应用文件。请选择如何处理书库数据（书籍、封面、有声书、阅读进度与批注）："
+      },
+      {
+        "type": "radio",
+        "field": "delete_data",
+        "label": "数据处理",
+        "initValue": "false",
+        "options": [
+          { "label": "保留书库数据（推荐，重装后可继续阅读）", "value": "false" },
+          { "label": "删除全部书库数据（不可恢复）", "value": "true" }
+        ],
+        "rules": [
+          { "required": true, "message": "请选择数据处理方式" }
+        ]
+      }
+    ]
+  }
+]

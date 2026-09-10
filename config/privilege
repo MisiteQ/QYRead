@@ -1,0 +1,8 @@
+{
+    "defaults": {
+        "run-as": "package"
+    },
+    "username": "qyread",
+    "groupname": "qyread",
+    "join-groups": ["audio"]
+}

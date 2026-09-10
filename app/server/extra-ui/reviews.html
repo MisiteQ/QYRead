@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>我的读后感 · 惬意阅读</title>
+<style>
+  :root{--bg:#f4f5f7;--card:#fff;--text:#1f2329;--muted:#8a9099;--accent:#3370ff;--border:#e8eaed;--danger:#e5484d}
+  @media(prefers-color-scheme:dark){
+    :root{--bg:#17181a;--card:#222326;--text:#e8e6e1;--muted:#90939a;--border:#333438}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+  .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:12px;padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));background:var(--card);border-bottom:1px solid var(--border)}
+  .back{color:var(--accent);text-decoration:none;font-size:15px}
+  .topbar h1{font-size:17px;margin:0;flex:1}
+  .wrap{max-width:760px;margin:0 auto;padding:14px 14px 60px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px}
+  .card-head{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px}
+  .cover{width:44px;height:58px;border-radius:6px;background:linear-gradient(135deg,#7f9cf5,#3370ff);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;flex:none}
+  .cover img{width:100%;height:100%;object-fit:cover;border-radius:6px}
+  .info{flex:1;min-width:0}
+  .title{font-weight:600;font-size:16px;line-height:1.4;word-break:break-all}
+  .sub{color:var(--muted);font-size:12px;margin-top:3px}
+  textarea{width:100%;min-height:150px;border:1px solid var(--border);border-radius:10px;padding:12px;font-size:15px;line-height:1.8;resize:vertical;background:transparent;color:var(--text);font-family:inherit;outline:none}
+  textarea:focus{border-color:var(--accent)}
+  .bar{display:flex;align-items:center;gap:12px;margin-top:10px;flex-wrap:wrap}
+  .stat{color:var(--muted);font-size:12.5px;flex:1;min-width:120px}
+  .btn{border:none;border-radius:999px;padding:8px 20px;font-size:14px;cursor:pointer;font-family:inherit}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
+  .btn-danger{background:transparent;color:var(--danger);border:1px solid var(--border)}
+  .btn:disabled{opacity:.5}
+  .empty{text-align:center;color:var(--muted);padding:80px 24px;line-height:2}
+  .empty .big{font-size:44px;display:block;margin-bottom:12px}
+  .toast{position:fixed;left:50%;top:max(18px,env(safe-area-inset-top));transform:translateX(-50%) translateY(-16px);background:rgba(0,0,0,.82);color:#fff;padding:9px 18px;border-radius:999px;font-size:14px;z-index:50;opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .tip{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a class="back" href="/">‹ 返回书库</a>
+  <h1>我的读后感</h1>
+</div>
+<div class="wrap" id="wrap"><div style="text-align:center;color:var(--muted);padding:60px">加载中…</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  'use strict';
+  const $=s=>document.querySelector(s);
+  function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2000);}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function fmtTime(ts){
+    if(!ts) return '';
+    const d=new Date(ts),p=n=>String(n).padStart(2,'0');
+    return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+  }
+  function countWords(s){
+    // 中文按字、英文/数字按词，混合长度
+    const cn=(s.match(/[\u4e00-\u9fff]/g)||[]).length;
+    const en=(s.replace(/[\u4e00-\u9fff]/g,' ').match(/[A-Za-z0-9]+/g)||[]).length;
+    return cn+en;
+  }
+
+  async function api(url, opt){
+    const r=await fetch(url, Object.assign({headers:{'Content-Type':'application/json'}}, opt||{}));
+    if(r.status===401||r.status===403){ const e=new Error('请先登录'); e.auth=true; throw e; }
+    if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error||'请求失败'); }
+    return r.status===204?null:r.json();
+  }
+
+  async function load(){
+    const wrap=$('#wrap');
+    try{
+      const rows=await api('/api/extra/reviews');
+      if(!rows.length){
+        wrap.innerHTML='<div class="empty"><span class="big">📝</span>还没有读后感<br>打开任意一本书的详情页，点击「写读后感」开始记录吧</div>';
+        return;
+      }
+      wrap.innerHTML='<div class="tip">读书心得随想随记，字数与更新时间自动保存；在书籍详情页还能看到这本书的累计阅读时长。</div>'
+        + rows.map(r=>{
+          const cover=r.cover
+            ? '<div class="cover"><img src="/api/books/'+r.book_id+'/cover" alt="" onerror="this.parentNode.textContent=\'📖\'"></div>'
+            : '<div class="cover">📖</div>';
+          return '<div class="card" data-book="'+r.book_id+'">'
+            +'<div class="card-head">'+cover
+            +'<div class="info"><div class="title">'+esc(r.title||('书籍 #'+r.book_id))+'</div>'
+            +'<div class="sub">'+esc([r.author,(r.format||'').toUpperCase()].filter(Boolean).join(' · '))+'　更新于 '+esc(fmtTime(r.updated_at))+'</div></div></div>'
+            +'<textarea placeholder="记录你对这本书的感想、收获与思考…">'+esc(r.content||'')+'</textarea>'
+            +'<div class="bar"><span class="stat" data-stat></span>'
+            +'<button class="btn btn-danger" data-del>删除</button>'
+            +'<button class="btn btn-primary" data-save>保存</button></div></div>';
+        }).join('');
+
+      wrap.querySelectorAll('.card').forEach(card=>{
+        const id=card.dataset.book, ta=card.querySelector('textarea'), stat=card.querySelector('[data-stat]');
+        const refresh=()=>{ stat.textContent='字数 '+countWords(ta.value); };
+        ta.addEventListener('input',refresh); refresh();
+        card.querySelector('[data-save]').onclick=async b=>{
+          const btn=b.currentTarget||b.target;
+          btn.disabled=true;
+          try{ await api('/api/extra/reviews/'+id,{method:'PUT',body:JSON.stringify({content:ta.value})}); toast('已保存'); load(); }
+          catch(e){ toast(e.message); btn.disabled=false; }
+        };
+        card.querySelector('[data-del]').onclick=()=>{
+          if(!ta.value.trim()||confirm('确定删除这篇读后感？')){
+            api('/api/extra/reviews/'+id,{method:'DELETE'}).then(()=>{toast('已删除');load();}).catch(e=>toast(e.message));
+          }
+        };
+      });
+    }catch(e){
+      if(e.auth){
+        wrap.innerHTML='<div class="empty"><span class="big">🔒</span>登录已过期<br><br><a class="btn btn-primary" href="/" style="text-decoration:none;display:inline-block">去登录</a></div>';
+      }else{
+        wrap.innerHTML='<div class="empty">加载失败：'+esc(e.message)+'<br><br><button class="btn btn-ghost" onclick="location.reload()">重试</button></div>';
+      }
+    }
+  }
+  load();
+})();
+</script>
+</body>
+</html>

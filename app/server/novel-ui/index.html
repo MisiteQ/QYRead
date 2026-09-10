@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>小说搜索下载 · 惬意阅读</title>
+<style>
+:root{
+  --bg:#f5f6f8; --card:#fff; --text:#1a1a1a; --sub:#6b7280; --accent:#2563eb;
+  --accent-bg:#eff6ff; --border:#e5e7eb; --radius:14px; --shadow:0 2px 12px rgba(0,0,0,.06);
+  --ok:#16a34a; --warn:#d97706; --err:#dc2626;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0f172a; --card:#1e293b; --text:#e2e8f0; --sub:#94a3b8; --accent:#60a5fa;
+    --accent-bg:#1e3a5f; --border:#334155; --shadow:0 2px 12px rgba(0,0,0,.3); }
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh;padding:env(safe-area-inset-top) env(safe-area-inset-right) calc(72px + env(safe-area-inset-bottom)) env(safe-area-inset-left)}
+.header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:12px;box-shadow:var(--shadow)}
+.header a{color:var(--accent);text-decoration:none;font-size:14px;white-space:nowrap}
+.header h1{font-size:18px;font-weight:700;flex:1}
+.header .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0}
+.container{max-width:900px;margin:0 auto;padding:16px}
+.search-bar{display:flex;gap:8px;margin-bottom:12px}
+.search-bar input{flex:1;padding:12px 16px;border:1px solid var(--border);border-radius:24px;font-size:15px;background:var(--card);color:var(--text);outline:none}
+.search-bar input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.search-bar button{padding:12px 22px;border:none;border-radius:24px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap}
+.search-bar button:disabled{opacity:.5}
+.savedir-bar{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-bottom:12px;font-size:13px;cursor:pointer;transition:.2s}
+.savedir-bar:hover{border-color:var(--accent)}
+.savedir-bar .label{color:var(--sub);white-space:nowrap}
+.savedir-bar .dir{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;direction:rtl;text-align:left}
+.savedir-bar .chg{color:var(--accent);white-space:nowrap;font-size:12px}
+.tabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid var(--border)}
+.tab{padding:10px 16px;font-size:14px;color:var(--sub);cursor:pointer;border-bottom:2px solid transparent;transition:.2s}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.loading{text-align:center;padding:40px;color:var(--sub);font-size:14px}
+.loading .spin{display:inline-block;width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-right:8px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.result-list{display:flex;flex-direction:column;gap:10px}
+.result-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;display:flex;gap:12px;align-items:flex-start;transition:.2s}
+.result-card:hover{box-shadow:var(--shadow);border-color:var(--accent)}
+.result-card .info{flex:1;min-width:0}
+.result-card .name{font-size:16px;font-weight:600;margin-bottom:4px;word-break:break-word}
+.result-card .meta{font-size:13px;color:var(--sub);display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px}
+.result-card .meta span{display:inline-flex;align-items:center;gap:2px}
+.result-card .tag{display:inline-block;font-size:11px;padding:2px 8px;background:var(--accent-bg);color:var(--accent);border-radius:6px;margin-right:4px}
+.result-card .actions{display:flex;flex-direction:column;gap:6px;align-items:stretch;flex-shrink:0}
+.result-card .actions button{padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text);font-size:13px;cursor:pointer;white-space:nowrap}
+.result-card .actions button.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+.result-card .actions button.ghost{padding:5px 10px;font-size:12px;color:var(--sub);border-style:dashed}
+.result-card .actions button:disabled{opacity:.5;cursor:default}
+.result-card .actions .src-tip{font-size:11px;color:var(--sub);text-align:right;margin-top:2px}
+.sources-list{font-size:11px;color:var(--sub);margin-top:6px}
+.sources-list .src{display:inline-block;padding:1px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;margin:2px 2px 0 0}
+.progress-bar{height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:8px;display:none}
+.progress-bar.show{display:block}
+.progress-bar .fill{height:100%;background:var(--accent);width:0;transition:width .3s}
+.progress-info{font-size:12px;color:var(--sub);margin-top:6px;min-height:18px}
+.local-bar{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-bottom:12px;font-size:12px;flex-wrap:wrap}
+.local-bar .cur{flex:1;min-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;color:var(--sub)}
+.local-bar button{padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--accent);font-size:12px;cursor:pointer;white-space:nowrap}
+.local-list{display:flex;flex-direction:column;gap:8px}
+.local-item{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:10px}
+.local-item .icon{font-size:24px}
+.local-item .meta{flex:1;min-width:0}
+.local-item .name{font-size:14px;word-break:break-all}
+.local-item .sub{font-size:12px;color:var(--sub)}
+.local-item .ops{display:flex;gap:6px;flex-shrink:0}
+.local-item button{padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:transparent;font-size:13px;cursor:pointer}
+.local-item .dl{color:var(--accent)}
+.local-item .del{color:var(--err)}
+.empty{text-align:center;padding:40px;color:var(--sub)}
+.empty .icon{font-size:48px;margin-bottom:8px;opacity:.4}
+.back-to-read{display:block;text-align:center;margin:24px 0;padding:14px;border:1px solid var(--border);border-radius:var(--radius);color:var(--accent);text-decoration:none;font-size:14px}
+.notice{padding:12px 14px;background:var(--accent-bg);border:1px solid var(--accent);border-radius:10px;font-size:12px;color:var(--accent);margin-bottom:12px;line-height:1.5}
+.toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 20px;border-radius:24px;font-size:14px;z-index:300;animation:fadein .3s;max-width:90vw;text-align:center;white-space:pre-line;line-height:1.5}
+@keyframes fadein{from{opacity:0;transform:translate(-50%,10px)}}
+
+/* 全局下载任务面板 */
+.task-dock{position:fixed;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));max-width:900px;margin:0 auto;background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.18);z-index:200;display:none;overflow:hidden}
+.task-dock.show{display:block}
+.task-dock .dock-head{display:flex;align-items:center;gap:8px;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;user-select:none}
+.task-dock .dock-head .badge{background:var(--accent);color:#fff;border-radius:10px;padding:0 8px;font-size:11px;line-height:18px;min-width:18px;text-align:center}
+.task-dock .dock-head .toggle{margin-left:auto;color:var(--sub);font-size:12px}
+.task-dock .dock-body{max-height:46vh;overflow-y:auto;padding:0 12px 10px;display:none}
+.task-dock.open .dock-body{display:block}
+.task-card{border-top:1px solid var(--border);padding:10px 2px}
+.task-card .row1{display:flex;align-items:center;gap:8px;font-size:13px}
+.task-card .tname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.task-card .tstat{font-size:12px;color:var(--sub);white-space:nowrap}
+.task-card .tstat.ok{color:var(--ok)}
+.task-card .tstat.err{color:var(--err)}
+.task-card .tbar{height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:7px}
+.task-card .tbar .fill{height:100%;background:var(--accent);width:0;transition:width .3s}
+.task-card .tmsg{font-size:11px;color:var(--sub);margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-card .tlib{font-size:11px;color:var(--ok);margin-top:3px}
+.task-card .tclose{border:none;background:transparent;color:var(--sub);font-size:15px;cursor:pointer;padding:0 2px;line-height:1}
+.task-card .tops{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap}
+.task-card .tops button{padding:4px 12px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:12px;cursor:pointer;line-height:1.4}
+.task-card .tops button:disabled{opacity:.5;cursor:default}
+.task-card .tops .btn-pause{color:var(--warn);border-color:var(--warn)}
+.task-card .tops .btn-cancel{color:var(--err);border-color:var(--err)}
+.task-card .tops .btn-resume{color:var(--ok);border-color:var(--ok)}
+.task-card .tops .btn-retry{color:var(--accent);border-color:var(--accent)}
+.task-card .tstat.paused{color:var(--warn)}
+.task-card .tstat.cancelled{color:var(--sub)}
+
+/* 目录选择弹窗 */
+.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:250;display:none;align-items:flex-end;justify-content:center}
+.modal-mask.show{display:flex}
+.modal{background:var(--card);width:100%;max-width:560px;max-height:78vh;border-radius:16px 16px 0 0;display:flex;flex-direction:column}
+@media(min-width:640px){.modal-mask{align-items:center}.modal{border-radius:16px;max-height:70vh}}
+.modal .m-head{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center}
+.modal .m-head b{flex:1;font-size:15px}
+.modal .m-head button{border:none;background:transparent;font-size:18px;color:var(--sub);cursor:pointer}
+.modal .m-body{overflow-y:auto;padding:8px 12px;flex:1}
+.modal .m-foot{padding:10px 16px;border-top:1px solid var(--border);display:none;gap:10px}
+.modal .m-foot.show{display:flex}
+.modal .m-foot button{flex:1;padding:11px;border-radius:10px;font-size:14px;cursor:pointer;border:1px solid var(--border);background:var(--card);color:var(--text)}
+.modal .m-foot button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.dir-opt{display:flex;align-items:center;gap:10px;padding:11px 10px;border-radius:10px;cursor:pointer;font-size:13px}
+.dir-opt:hover,.dir-opt.sel{background:var(--accent-bg)}
+.dir-opt .ic{font-size:18px}
+.dir-opt .nm{flex:1;min-width:0}
+.dir-opt .nm b{display:block;font-size:13px}
+.dir-opt .nm small{display:block;color:var(--sub);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dir-opt .ck{color:var(--accent);font-weight:700}
+.dir-section-tip{font-size:11px;color:var(--sub);padding:10px 10px 4px}
+.browser-nav{display:flex;align-items:center;gap:6px;padding:8px 4px;font-size:12px;flex-wrap:wrap}
+.browser-nav button{padding:4px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);cursor:pointer;font-size:12px}
+.browser-nav .curpath{flex:1;min-width:120px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
+</style>
+</head>
+<body>
+<div class="header">
+  <a href="/">← 书架</a>
+  <div class="dot"></div>
+  <h1>小说搜索</h1>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <div class="tab active" data-tab="search">🔍 搜索下载</div>
+    <div class="tab" data-tab="local">📚 已下载</div>
+  </div>
+
+  <div id="view-search">
+    <div class="search-bar">
+      <input type="text" id="kw" placeholder="输入书名或作者名搜索..." autocomplete="off">
+      <button id="searchBtn">搜索</button>
+    </div>
+    <div class="savedir-bar" id="saveDirBar" title="点击更改下载文件夹">
+      <span class="label">📂 保存到</span>
+      <span class="dir" id="saveDirText">加载中...</span>
+      <span class="chg">更改 ▾</span>
+    </div>
+    <div class="notice">⚠️ 本功能仅用于学习交流，请支持正版。搜索结果来自第三方书源，内容版权归属原作者。</div>
+    <div id="results" class="result-list"></div>
+  </div>
+
+  <div id="view-local" style="display:none">
+    <div class="local-bar">
+      <span class="cur" id="localCurPath">—</span>
+      <button id="localSwitchBtn">切换目录</button>
+      <button id="openDirBtn">📂 打开文件夹</button>
+      <button id="localRefreshBtn">🔄 刷新</button>
+    </div>
+    <div id="local-list" class="local-list"></div>
+  </div>
+
+  <a class="back-to-read" href="/">返回阅读书架</a>
+</div>
+
+<!-- 全局下载任务面板 -->
+<div class="task-dock" id="taskDock">
+  <div class="dock-head" id="dockHead">
+    <span>⬇️ 下载任务</span>
+    <span class="badge" id="dockBadge">0</span>
+    <span class="toggle" id="dockToggle">展开 ▲</span>
+  </div>
+  <div class="dock-body" id="dockBody"></div>
+</div>
+
+<!-- 下载文件夹选择弹窗 -->
+<div class="modal-mask" id="dirModal">
+  <div class="modal">
+    <div class="m-head"><b id="dirModalTitle">选择下载文件夹</b><button id="dirModalClose">✕</button></div>
+    <div class="m-body" id="dirModalBody"></div>
+    <div class="m-foot" id="dirModalFoot">
+      <button id="dirCancel">取消</button>
+      <button class="primary" id="dirUse">使用此文件夹</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============ 基础状态 ============ */
+let token = localStorage.getItem('token') || '';
+let clientId = localStorage.getItem('novel_client_id');
+if(!clientId){ clientId = 'novel-' + Math.random().toString(36).slice(2,10); localStorage.setItem('novel_client_id', clientId); }
+let evtSource = null;
+let searchData = [];          // 最近一次搜索结果
+let dirsInfo = null;          // /dirs 返回
+let saveDir = null;           // 当前选择的下载目录（null=应用默认目录）
+let localDir = null;          // 已下载 tab 当前浏览目录
+let tasks = new Map();        // taskId -> task
+let browsePath = null;        // 目录浏览器当前路径
+let browseMode = false;       // 弹窗是否处于浏览模式
+let modalChoose = null;       // 浏览模式中待确认目录
+let modalCallback = null;
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s==null?'':s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+function toast(msg){
+  const t=document.createElement('div');t.className='toast';t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(),2800);
+}
+function formatSize(b){
+  b=Number(b)||0;
+  if(b<1024) return b+'B';
+  if(b<1048576) return (b/1024).toFixed(1)+'KB';
+  if(b<1073741824) return (b/1048576).toFixed(1)+'MB';
+  return (b/1073741824).toFixed(2)+'GB';
+}
+function formatTime(v){
+  if(!v) return '';
+  const d=new Date(v); return (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+async function copyText(t){
+  try{ await navigator.clipboard.writeText(t); return true; }
+  catch(e){
+    const ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();
+    let ok=false; try{ ok=document.execCommand('copy'); }catch(_){}
+    ta.remove(); return ok;
+  }
+}
+
+async function api(p, opts={}){
+  const res = await fetch('/api/novel'+p, {
+    ...opts,
+    headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+token, ...(opts.headers||{}) }
+  });
+  if(res.status===401 || res.status===403){ throw new Error('登录已失效，请回到书架重新登录'); }
+  const data = await res.json().catch(()=>({error:'响应解析失败'}));
+  if(!res.ok) throw new Error(data.error||res.statusText);
+  return data;
+}
+
+/* ============ 下载目录 ============ */
+async function loadDirs(){
+  try{
+    dirsInfo = await api('/dirs');
+    saveDir = dirsInfo.savedDir || null;
+  }catch(e){
+    $('saveDirText').textContent = '目录信息不可用';
+    return;
+  }
+  renderSaveDir();
+}
+function renderSaveDir(){
+  const el = $('saveDirText');
+  if(!saveDir){ el.textContent = dirsInfo ? dirsInfo.defaultDir : '应用默认目录'; el.title = el.textContent; }
+  else { el.textContent = saveDir; el.title = saveDir; }
+}
+async function persistSaveDir(dir){
+  await fetch('/api/preferences/novel_download_dir', {
+    method:'PUT',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+    body: JSON.stringify({ value: dir })
+  });
+}
+
+/* ============ 目录选择弹窗 ============ */
+function openDirModal({forLocal=false}={}){
+  modalCallback = forLocal ? (p)=>{ localDir=p; loadLocal(); } : null;
+  browseMode=false;
+  $('dirModalTitle').textContent = forLocal ? '切换已下载目录' : '选择下载文件夹';
+  renderDirCandidates();
+  $('dirModal').classList.add('show');
+}
+function closeDirModal(){ $('dirModal').classList.remove('show'); }
+
+function renderDirCandidates(){
+  $('dirModalFoot').classList.remove('show');
+  const body = $('dirModalBody');
+  const cur = forLocalDir();
+  let html = '<div class="dir-section-tip">常用文件夹</div>';
+  const targets = (dirsInfo && dirsInfo.targets) || [];
+  if(targets.length===0) html += '<div class="empty" style="padding:20px">暂不可用</div>';
+  html += targets.map(t=>{
+    const p = t.path;
+    const isSel = t.type==='upload'
+      ? (cur===null || cur===dirsInfo.defaultDir)
+      : (cur===p);
+    const sel = isSel ? '<span class="ck">✓</span>' : '';
+    const label = t.type==='upload' ? '应用默认下载目录' : '📚 '+esc(t.name)+(t.isPublic?'（公共书库）':'（个人书库）');
+    return `<div class="dir-opt" data-pick="${esc(p)}" data-default="${t.type==='upload'?1:0}">
+      <span class="ic">${t.type==='upload'?'📥':'📚'}</span>
+      <span class="nm"><b>${label}</b><small>${esc(p)}</small></span>${sel}</div>`;
+  }).join('');
+  html += '<div class="dir-section-tip">没有想要的文件夹？</div>';
+  html += '<div class="dir-opt" id="browseEntry"><span class="ic">🗂️</span><span class="nm"><b>浏览存储空间，选择其他文件夹</b><small>可选择书库下的子文件夹，或自动建立个人书库</small></span><span>›</span></div>';
+  body.innerHTML = html;
+  body.querySelectorAll('[data-pick]').forEach(el=>{
+    el.onclick = async ()=>{
+      const isDefault = el.dataset.default==='1';
+      const p = isDefault ? null : el.dataset.pick;
+      await applyDirChoice(p);
+    };
+  });
+  $('browseEntry').onclick = ()=>{ browseMode=true; modalChoose=null; browsePath=(dirsInfo&&dirsInfo.root)||'/'; renderBrowser(); };
+}
+function forLocalDir(){ return $('dirModalTitle').textContent.indexOf('切换')===0 ? localDir : saveDir; }
+
+async function applyDirChoice(p){
+  if(modalCallback){ modalCallback(p); closeDirModal(); return; }
+  // 搜索页：保存为下载偏好（默认目录 p=null）
+  saveDir = p;
+  renderSaveDir();
+  // 同步已下载视图的浏览目录
+  const localVisible = $('view-local').style.display !== 'none';
+  localDir = p || (dirsInfo && dirsInfo.defaultDir) || null;
+  if(localVisible) loadLocal();
+  try{
+    await persistSaveDir(p);
+    toast(p ? '下载文件夹已设置' : '已恢复为默认下载目录');
+  }catch(e){ toast('偏好保存失败：'+e.message); }
+  closeDirModal();
+}
+
+async function renderBrowser(){
+  $('dirModalFoot').classList.add('show');
+  const body = $('dirModalBody');
+  body.innerHTML = '<div class="loading"><span class="spin"></span>读取文件夹...</div>';
+  let data;
+  try{ data = await api('/dirs/browse?path='+encodeURIComponent(browsePath)); }
+  catch(e){ body.innerHTML='<div class="empty" style="padding:24px">读取失败：'+esc(e.message)+'</div>'; $('dirModalFoot').classList.remove('show'); return; }
+  browsePath = data.path;
+  const cur = modalChoose;
+  let html = `<div class="browser-nav">
+      <button id="brRoot" ${data.path===data.root?'disabled style="opacity:.4"':''}>存储根</button>
+      <button id="brUp" ${data.canGoUp?'':'disabled style="opacity:.4"'}>↑ 上级</button>
+      <span class="curpath" title="${esc(data.path)}">${esc(data.path)}</span>
+    </div>
+    <div class="dir-opt ${cur===data.path?'sel':''}" id="brUseCur">
+      <span class="ic">📂</span><span class="nm"><b>使用当前文件夹</b><small>${esc(data.path)}</small></span>
+      ${cur===data.path?'<span class="ck">✓</span>':''}
+    </div>`;
+  if(!data.dirs.length){ html += '<div class="empty" style="padding:20px;font-size:13px">该文件夹下没有子文件夹</div>'; }
+  html += data.dirs.map(d=>`
+    <div class="dir-opt ${cur===d.path?'sel':''}" data-brdir="${esc(d.path)}">
+      <span class="ic">📁</span>
+      <span class="nm"><b>${esc(d.name)}</b><small>${d.libraryName?'属于书库《'+esc(d.libraryName)+'》':'存储盘内文件夹'}</small></span>
+      <span>›</span>
+    </div>`).join('');
+  body.innerHTML = html;
+  $('brRoot').onclick = ()=>{ browsePath=data.root; renderBrowser(); };
+  $('brUp').onclick = ()=>{ if(data.parent){ browsePath=data.parent; renderBrowser(); } };
+  $('brUseCur').onclick = ()=>{ modalChoose=data.path; renderBrowser(); };
+  body.querySelectorAll('[data-brdir]').forEach(el=>{
+    el.onclick = ()=>{ modalChoose=el.dataset.brdir; browsePath=el.dataset.brdir; renderBrowser(); };
+  });
+}
+
+/* ============ 搜索 ============ */
+async function doSearch(){
+  const kw = $('kw').value.trim();
+  if(kw.length<2){ toast('关键词至少2个字符'); return; }
+  const btn = $('searchBtn');
+  const box = $('results');
+  btn.disabled=true; btn.textContent='搜索中...';
+  box.innerHTML='<div class="loading"><span class="spin"></span>正在聚合搜索多个书源，请稍候（约10-15秒）...</div>';
+  try{
+    const data = await api('/search?q='+encodeURIComponent(kw));
+    renderResults(data.results, kw);
+  }catch(e){
+    box.innerHTML='<div class="empty"><div class="icon">⚠️</div>'+esc(e.message)+'</div>';
+  }finally{
+    btn.disabled=false; btn.textContent='搜索';
+  }
+}
+
+function renderResults(results, kw){
+  const box = $('results');
+  if(!results.length){
+    box.innerHTML='<div class="empty"><div class="icon">📚</div>未找到与「'+esc(kw)+'」相关的小说</div>';
+    searchData=[];
+    return;
+  }
+  searchData = results;
+  box.innerHTML = results.map((r,i)=>`
+    <div class="result-card">
+      <div class="info">
+        <div class="name">${esc(r.bookName)}</div>
+        <div class="meta">
+          ${r.author?'<span>✍ '+esc(r.author)+'</span>':''}
+          ${r.category?'<span>🏷 '+esc(r.category)+'</span>':''}
+          ${r.status?'<span>📊 '+esc(r.status)+'</span>':''}
+          ${r.latestChapter?'<span>📖 '+esc(r.latestChapter)+'</span>':''}
+        </div>
+        ${r.intro?'<div style="font-size:12px;color:var(--sub);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">'+esc(r.intro)+'</div>':''}
+        <div class="sources-list">${r.sources.map(s=>'<span class="src">'+esc(s.sourceName)+'</span>').join('')}</div>
+        <div class="progress-bar" id="pb-${i}"><div class="fill"></div></div>
+        <div class="progress-info" id="pi-${i}"></div>
+      </div>
+      <div class="actions">
+        <button class="primary dl-btn" data-ri="${i}" data-si="0">⬇️ 下载本书</button>
+        ${r.sources.length>1?'<div class="src-tip">其他书源：</div>':''}
+        ${r.sources.map((s,si)=>si===0?'':`<button class="ghost dl-btn" data-ri="${i}" data-si="${si}">${esc(s.sourceName)}</button>`).join('')}
+      </div>
+    </div>
+  `).join('');
+  box.querySelectorAll('.dl-btn').forEach(btn=>{
+    btn.onclick = ()=>{
+      const r = searchData[Number(btn.dataset.ri)];
+      const s = r.sources[Number(btn.dataset.si)];
+      startDownload(Number(btn.dataset.ri), s.sourceId, r.bookName, s.bookUrl, btn);
+    };
+  });
+}
+
+/* ============ 下载 + 任务面板 ============ */
+const PHASE_TEXT = {
+  'init':'排队中...','pending':'排队中...','fetching-book':'获取书籍信息...',
+  'fetching-toc':'获取目录...','fetching-chapters':'抓取正文章节',
+  'building':'生成电子书','finished':'已完成','cancelled':'已取消'
+};
+const PRE_CHAPTER_PHASES = ['init','pending','fetching-book','fetching-toc'];
+function pctOf(t){
+  if(t.status==='done') return 100;
+  if(t.phase==='building' && t.total===0) return 96;
+  if(!t.total) return t.phase==='fetching-book'?4:(t.phase==='fetching-toc'?10:0);
+  // 章节抓取占 5%~90%，生成阶段 90%~99%
+  if(t.phase==='building') return Math.min(99, 90+Math.round((t.current/Math.max(1,t.total))*9));
+  return Math.min(90, 5+Math.round((t.current/t.total)*85));
+}
+function isActive(t){ return t.status==='pending'||t.status==='running'||t.status==='paused'||!t.status; }
+function isEnded(t){ return t.status==='done'||t.status==='error'||t.status==='cancelled'; }
+
+async function startDownload(idx, sourceId, bookName, bookUrl, btn){
+  if(btn){ btn.disabled=true; btn.textContent='排队中...'; }
+  const pi = $('pi-'+idx), pb = $('pb-'+idx);
+  if(pb) pb.classList.add('show');
+  if(pi) pi.textContent='排队中...';
+  try{
+    const data = await api('/download', {
+      method:'POST',
+      body: JSON.stringify({ sourceId, bookUrl, bookName, extname:'epub', clientId, dir: saveDir })
+    });
+    tasks.set(data.taskId, {
+      taskId:data.taskId, bookName, status:'running', phase:'init', current:0, total:0,
+      message:'下载已启动...', dir:data.dir, libraryName:data.libraryName, rowIdx:idx,
+      retry:{ sourceId, bookUrl, bookName, dir:saveDir, idx }
+    });
+    if(pi) pi.textContent='下载已启动...';
+    if(data.libraryCreated) toast('已自动建立个人书库，下载完成后自动入库');
+    renderDock();
+  }catch(e){
+    if(pi) pi.textContent='❌ '+e.message;
+    if(btn){ btn.disabled=false; btn.textContent='📥 重试'; }
+    toast('启动下载失败: '+e.message);
+  }
+}
+
+function taskOpsHtml(t){
+  if(t.status==='pending'){
+    return `<button class="btn-cancel" data-op="cancel" data-id="${t.taskId}">✖ 取消</button>`;
+  }
+  if(t.status==='running'){
+    return `<button class="btn-pause" data-op="pause" data-id="${t.taskId}">⏸ 暂停</button>
+            <button class="btn-cancel" data-op="cancel" data-id="${t.taskId}">✖ 取消</button>`;
+  }
+  if(t.status==='paused'){
+    return `<button class="btn-resume" data-op="resume" data-id="${t.taskId}">▶ 继续</button>
+            <button class="btn-cancel" data-op="cancel" data-id="${t.taskId}">✖ 取消</button>`;
+  }
+  if(t.status==='cancelling'){
+    return `<button disabled>取消中…</button>`;
+  }
+  if(t.status==='error' && t.retry){
+    return `<button class="btn-retry" data-op="retry" data-id="${t.taskId}">⬇ 重试</button>
+            <button class="tclose" data-close="${t.taskId}" title="移除">✕</button>`;
+  }
+  // done / cancelled / error(无重试信息)
+  return `<button class="tclose" data-close="${t.taskId}" title="移除">✕</button>`;
+}
+
+function renderDock(){
+  const dock = $('taskDock');
+  if(tasks.size===0){ dock.classList.remove('show'); return; }
+  dock.classList.add('show');
+  const activeN = [...tasks.values()].filter(isActive).length;
+  $('dockBadge').textContent = activeN;
+  $('dockToggle').textContent = dock.classList.contains('open') ? '收起 ▼' : '展开 ▲';
+  const body = $('dockBody');
+  body.innerHTML = [...tasks.values()].map(t=>{
+    const pct = pctOf(t);
+    let statCls='', statTxt='', icon='⬇️', barColor='';
+    if(t.status==='done'){ statCls='ok'; statTxt='已完成'; icon='✅'; }
+    else if(t.status==='error'){ statCls='err'; statTxt='失败'; icon='❌'; barColor='background:var(--err)'; }
+    else if(t.status==='cancelled'){ statCls='cancelled'; statTxt='已取消'; icon='🚫'; barColor='background:var(--sub)'; }
+    else if(t.status==='cancelling'){ statTxt='取消中'; icon='⬇️'; }
+    else if(t.status==='paused'){ statCls='paused'; statTxt='已暂停'; icon='⏸'; barColor='background:var(--warn)'; }
+    else { statTxt = PHASE_TEXT[t.phase] || '进行中'; }
+    const showPct = !(t.status==='done'||t.status==='cancelled');
+    const name = t.bookName || (isActive(t) ? '书籍信息获取中…' : '未知书籍');
+    const msg = t.status==='error' ? ('失败原因：'+(t.error||''))
+              : t.status==='cancelled' ? '任务已取消'
+              : (t.message||PHASE_TEXT[t.phase]||'');
+    return `<div class="task-card">
+      <div class="row1">
+        <span>${icon}</span>
+        <span class="tname">${esc(name)}</span>
+        <span class="tstat ${statCls}">${statTxt}${showPct?' '+pct+'%':''}</span>
+      </div>
+      <div class="tbar"><div class="fill" style="width:${pct}%;${barColor}"></div></div>
+      <div class="tmsg">${esc(msg)}</div>
+      ${t.status==='done'&&t.libraryName?'<div class="tlib">📚 已归入书库《'+esc(t.libraryName)+'》，稍后可在书架查看</div>':''}
+      <div class="tops">${taskOpsHtml(t)}</div>
+    </div>`;
+  }).join('');
+  body.querySelectorAll('[data-close]').forEach(b=>{
+    b.onclick = ()=>{ tasks.delete(b.dataset.close); renderDock(); };
+  });
+  body.querySelectorAll('[data-op]').forEach(b=>{
+    b.onclick = ()=>taskControl(b.dataset.op, b.dataset.id, b);
+  });
+}
+
+async function taskControl(op, taskId, btn){
+  if(op==='retry'){
+    const t = tasks.get(taskId);
+    if(!t || !t.retry) return;
+    const r = t.retry;
+    tasks.delete(taskId);
+    // 搜索结果卡片仍在时复用其按钮状态；没有卡片则静默重下
+    startDownload(r.idx==null?null:r.idx, r.sourceId, r.bookName, r.bookUrl, null);
+    return;
+  }
+  if(op==='cancel' && !confirm('确定取消这个下载任务吗？')) return;
+  if(btn) btn.disabled = true;
+  try{
+    const t = tasks.get(taskId);
+    if(op==='cancel' && t) { t.status='cancelling'; t.message='正在取消...'; renderDock(); }
+    await api('/task/'+encodeURIComponent(taskId)+'/'+op, { method:'POST' });
+  }catch(e){
+    // 服务端任务可能已被超时巡检自动判死/过期（409/404）：回拉真实状态同步面板
+    try{
+      const fresh = await api('/task/'+encodeURIComponent(taskId));
+      if(fresh && fresh.taskId){ applyTaskEvent(fresh); return; }
+    }catch(_){ /* 任务已不存在则按失败处理 */ }
+    toast('操作失败：'+e.message);
+    if(btn) btn.disabled = false;
+    renderDock();
+  }
+}
+
+function applyTaskEvent(d){
+  // 本页面从未展示过的任务推来取消事件（例如恢复时主动清掉的僵尸任务），不再加回面板
+  if(!tasks.has(d.taskId) && (d.status==='cancelling'||d.status==='cancelled')) return;
+  const exist = tasks.get(d.taskId) || {};
+  const merged = Object.assign({}, exist, d);
+  // 完成事件中的结果字段
+  if(d.result){
+    merged.bookName = d.result.bookName || merged.bookName;
+    merged.dir = d.result.dir || merged.dir;
+    merged.libraryName = d.result.libraryName || merged.libraryName;
+    merged.fileName = d.result.fileName;
+  }
+  tasks.set(d.taskId, merged);
+  const idx = merged.rowIdx;
+  if(idx!=null){
+    const pi=$('pi-'+idx), pb=$('pb-'+idx);
+    if(pi){
+      if(d.status==='done'){ pi.textContent='✅ 已下载完成'+(merged.libraryName?'，将加入《'+merged.libraryName+'》书库':''); }
+      else if(d.status==='error'){ pi.textContent='❌ '+(d.error||'下载失败'); }
+      else if(d.status==='cancelled'){ pi.textContent='🚫 已取消'; }
+      else if(d.status==='paused'){ pi.textContent='⏸ 已暂停 '+pctOf(merged)+'%'; }
+      else { pi.textContent=(d.message||PHASE_TEXT[d.phase]||'')+'  '+pctOf(merged)+'%'; }
+    }
+    if(pb) pb.querySelector('.fill').style.width = pctOf(merged)+'%';
+    document.querySelectorAll('.dl-btn[data-ri="'+idx+'"]').forEach(b=>{
+      if(d.status==='done'){ b.disabled=false; b.textContent='⬇️ 重新下载'; }
+      else if(d.status==='error'||d.status==='cancelled'){ b.disabled=false; b.textContent='⬇️ 重试'; }
+    });
+  }
+  renderDock();
+}
+
+function connectSSE(){
+  try{
+    evtSource = new EventSource('/api/novel/progress?clientId='+encodeURIComponent(clientId)+'&token='+encodeURIComponent(token));
+    evtSource.addEventListener('progress', e=>{ try{ applyTaskEvent(JSON.parse(e.data)); }catch(_){} });
+    evtSource.addEventListener('complete', e=>{
+      try{
+        const d=JSON.parse(e.data);
+        applyTaskEvent(d);
+        toast('《'+(d.result&&d.result.bookName||'小说')+'》下载完成！');
+      }catch(_){}
+    });
+    evtSource.addEventListener('error', e=>{ try{ const d=JSON.parse(e.data||'{}'); applyTaskEvent(d); }catch(_){} });
+    evtSource.addEventListener('cancelled', e=>{ try{ applyTaskEvent(JSON.parse(e.data)); }catch(_){} });
+    evtSource.onerror = ()=>{ /* 浏览器自动重连 */ };
+  }catch(e){ console.warn('SSE:',e); }
+}
+
+async function restoreTasks(){
+  try{
+    const data = await api('/tasks?clientId='+encodeURIComponent(clientId));
+    for(const t of (data.tasks||[])){
+      // 过滤历史遗留的无名僵尸任务：没有书名且还停留在抓信息/抓目录之前的阶段
+      // （旧版本会创建空名任务，书源无响应时会一直挂着）
+      const age = Date.now() - (t.startTime || 0);
+      const zombie = !t.bookName && isActive(t) && PRE_CHAPTER_PHASES.includes(t.phase||'init') && age > 30000;
+      if(zombie){
+        // 顺手通知服务端结束掉这个卡死的任务（失败静默）
+        api('/task/'+encodeURIComponent(t.taskId)+'/cancel', { method:'POST' }).catch(()=>{});
+        continue;
+      }
+      if(isActive(t) || (t.endTime && Date.now()-t.endTime < 2*60*60*1000)) tasks.set(t.taskId, t);
+    }
+    renderDock();
+  }catch(e){ /* 未登录等场景静默 */ }
+}
+
+/* ============ 已下载管理 ============ */
+async function loadLocal(){
+  const box = $('local-list');
+  box.innerHTML='<div class="loading"><span class="spin"></span>加载中...</div>';
+  let data;
+  try{
+    const q = localDir ? '?dir='+encodeURIComponent(localDir) : '';
+    data = await api('/local'+q);
+  }catch(e){
+    box.innerHTML='<div class="empty" style="padding:24px">加载失败：'+esc(e.message)+'</div>';
+    $('localCurPath').textContent='—';
+    return;
+  }
+  localDir = data.dir;
+  $('localCurPath').textContent = '📂 '+data.dir;
+  $('localCurPath').title = data.dir;
+  if(!data.files.length){
+    box.innerHTML='<div class="empty"><div class="icon">📭</div>该文件夹下暂无已下载的小说<br><span style="font-size:12px">下载完成的小说会出现在这里，并自动加入书架</span></div>';
+    return;
+  }
+  box.innerHTML = data.files.map(f=>`
+    <div class="local-item">
+      <div class="icon">${f.ext==='epub'?'📘':'📄'}</div>
+      <div class="meta">
+        <div class="name">${esc(f.name)}</div>
+        <div class="sub">${formatSize(f.size)} · ${formatTime(new Date(f.mtime).getTime())}</div>
+      </div>
+      <div class="ops">
+        <button class="dl" data-dl="${esc(f.name)}">下载</button>
+        <button class="del" data-del="${esc(f.name)}">删除</button>
+      </div>
+    </div>`).join('');
+  box.querySelectorAll('[data-dl]').forEach(b=>{
+    b.onclick = ()=>downloadFile(b.dataset.dl);
+  });
+  box.querySelectorAll('[data-del]').forEach(b=>{
+    b.onclick = ()=>delFile(b.dataset.del);
+  });
+}
+
+// 带鉴权头的文件下载（fetch 为 blob 后另存）
+async function downloadFile(name){
+  toast('开始下载 '+name);
+  try{
+    const res = await fetch('/api/novel/file/'+encodeURIComponent(name)+(localDir?'?dir='+encodeURIComponent(localDir):''),
+      { headers:{ 'Authorization':'Bearer '+token } });
+    if(!res.ok){ const d=await res.json().catch(()=>({})); throw new Error(d.error||res.statusText); }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  }catch(e){ toast('下载失败: '+e.message); }
+}
+
+async function delFile(name){
+  if(!confirm('确定删除「'+name+'」？\n删除后书架空的对应书籍记录也会被清理。')) return;
+  try{
+    await api('/file/'+encodeURIComponent(name)+(localDir?'?dir='+encodeURIComponent(localDir):''), { method:'DELETE' });
+    toast('已删除');
+    loadLocal();
+  }catch(e){ toast('删除失败: '+e.message); }
+}
+
+async function openDownloadDir(){
+  const dir = localDir || saveDir || (dirsInfo && dirsInfo.defaultDir);
+  if(!dir){ toast('目录信息不可用'); return; }
+  try{
+    const r = await api('/open-dir', { method:'POST', body: JSON.stringify({ dir }) });
+    const ok = await copyText(r.path);
+    toast((ok?'✅ 已复制文件夹绝对路径\n':'')+ (r.hint||'可在飞牛文件管理中粘贴打开'));
+  }catch(e){ toast('操作失败: '+e.message); }
+}
+
+/* ============ 事件绑定 ============ */
+$('searchBtn').onclick = doSearch;
+$('kw').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
+$('saveDirBar').onclick = ()=>openDirModal({forLocal:false});
+$('localSwitchBtn').onclick = ()=>openDirModal({forLocal:true});
+$('openDirBtn').onclick = openDownloadDir;
+$('localRefreshBtn').onclick = loadLocal;
+document.querySelectorAll('.tab').forEach(t=>{
+  t.onclick=()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    const tab=t.dataset.tab;
+    $('view-search').style.display = tab==='search'?'':'none';
+    $('view-local').style.display = tab==='local'?'':'none';
+    if(tab==='local'){ if(!localDir && dirsInfo) localDir = saveDir || dirsInfo.defaultDir; loadLocal(); }
+  };
+});
+$('dockHead').onclick = ()=>{ $('taskDock').classList.toggle('open'); renderDock(); };
+$('dirModalClose').onclick = closeDirModal;
+$('dirCancel').onclick = ()=>{ if(browseMode){ browseMode=false; renderDirCandidates(); } else closeDirModal(); };
+$('dirUse').onclick = async ()=>{
+  if(!modalChoose){ toast('请先选择一个文件夹'); return; }
+  await applyDirChoice(modalChoose);
+};
+$('dirModal').addEventListener('click', e=>{ if(e.target.id==='dirModal') closeDirModal(); });
+
+/* ============ 启动 ============ */
+(async function init(){
+  if(!token){
+    $('results').innerHTML='<div class="empty"><div class="icon">🔒</div>请先在书架登录后使用小说搜索</div>';
+    $('saveDirText').textContent='未登录';
+    return;
+  }
+  await loadDirs();
+  if(dirsInfo) localDir = saveDir || dirsInfo.defaultDir;
+  connectSSE();
+  restoreTasks();
+})();
+</script>
+</body>
+</html>

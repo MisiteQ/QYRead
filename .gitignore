@@ -1,0 +1,37 @@
+# ===== 依赖 =====
+node_modules/
+**/node_modules/
+
+# ===== 构建产物 =====
+*.fpk
+build-assets/tmp/
+dist/
+
+# ===== 运行时数据与密钥 =====
+.secret
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+app/server/logs/*
+!app/server/logs/.gitkeep
+data/
+uploads/
+
+# ===== 日志与临时文件 =====
+*.log
+*.tmp
+*.bak
+*.swp
+*~
+
+# ===== 系统 / 编辑器 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.iml
+
+# ===== fnpack 临时构建树 =====
+.qyread-fnpack/

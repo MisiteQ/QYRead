@@ -1,0 +1,190 @@
+#!/bin/bash
+set -e
+
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+PID_FILE="${TRIM_PKGVAR}/app.pid"
+
+# Inject Node.js environment (using v22 as in reference)
+export PATH=/var/apps/nodejs_v22/target/bin:$PATH
+
+# Data Directory Logic
+# TRIM_DATA_SHARE_PATHS contains colon-separated paths. We take the first one.
+USER_DATA_ROOT="${TRIM_DATA_SHARE_PATHS%%:*}"
+
+# Get subdirectory from wizard (if applicable), default to qyread
+APP_SUBDIR="${wizard_data_subdir:-qyread}"
+
+if [ -n "$USER_DATA_ROOT" ]; then
+    # Use the user-selected storage
+    DATA_DIR="${USER_DATA_ROOT}/${APP_SUBDIR}"
+    STORAGE_ROOT="${USER_DATA_ROOT}"
+else
+    # Fallback to internal pkgvar
+    DATA_DIR="${TRIM_PKGVAR}/${APP_SUBDIR}"
+    STORAGE_ROOT="${TRIM_PKGVAR}"
+fi
+
+# Ensure data directories exist
+mkdir -p "$DATA_DIR"
+
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+
+# Port Configuration - 从 port.conf 读取（由 install_callback 保存）
+PORT_CONF="${TRIM_PKGVAR}/port.conf"
+if [ -f "$PORT_CONF" ]; then
+    source "$PORT_CONF"
+fi
+APP_PORT="${APP_PORT:-8344}"
+
+# 安装向导中选择的「现有书籍文件夹」（由 install_callback 保存，重启后仍生效）
+BOOKS_CONF="${TRIM_PKGVAR}/books_dir.conf"
+if [ -f "$BOOKS_CONF" ]; then
+    source "$BOOKS_CONF"
+fi
+export BOOKS_LIBRARY_PATH="${BOOKS_LIBRARY_PATH:-}"
+export BOOKS_LIBRARY_NAME="${BOOKS_LIBRARY_NAME:-我的书库}"
+
+# Export variables for the Node.js process
+export TRIM_PKGVAR
+export TRIM_PKGETC
+export TRIM_APPDEST
+export TRIM_PKGHOME
+export TRIM_DATA_SHARE_PATHS
+export DATA_DIR
+export STORAGE_ROOT
+export PORT="${APP_PORT}"
+
+# App specific envs
+export ADMIN_USERNAME="${wizard_admin_username}"
+export ADMIN_PASSWORD="${wizard_admin_password}"
+export DB_TYPE="${wizard_database_type:-sqlite}"
+export DB_PATH="${DATA_DIR}/qyread.sqlite"
+export UPLOAD_DIR="${DATA_DIR}/uploads"
+export LOG_DIR="${TRIM_PKGVAR}/logs"
+
+# Ensure upload dir exists
+mkdir -p "$UPLOAD_DIR"
+mkdir -p "$LOG_DIR"
+
+export IMAGES_DIR="${DATA_DIR}/images"
+mkdir -p "$IMAGES_DIR"
+
+# Start Command
+CMD="node ${TRIM_APPDEST}/server/server.js"
+
+log_msg() {
+    local msg="$(date '+%Y-%m-%d %H:%M:%S') - $1"
+    echo "$msg" | tee -a "${LOG_FILE}" >&2
+    if [ -n "${TRIM_TEMP_LOGFILE}" ]; then
+        echo "$msg" >> "${TRIM_TEMP_LOGFILE}" 2>&1 || true
+    fi
+}
+
+start_process() {
+    if status; then
+        return 0
+    fi
+
+    log_msg "Starting 惬意阅读..."
+    log_msg "PORT: ${PORT}"
+    log_msg "DATA_DIR: ${DATA_DIR}"
+
+    bash -c "${CMD}" >> "${LOG_FILE}" 2>&1 &
+    printf "%s" "$!" > "${PID_FILE}"
+
+    # 安装向导配置了「现有书籍文件夹」时，服务启动后在后台引导注册公共书库并首次扫描。
+    # 独立进程、幂等执行（书库已存在会自行退出），失败不影响主服务运行。
+    if [ -n "${BOOKS_LIBRARY_PATH}" ]; then
+        BOOTSTRAP_JS="${TRIM_APPDEST}/server/bootstrap-library.js"
+        if [ -f "$BOOTSTRAP_JS" ]; then
+            log_msg "Book library bootstrap scheduled: ${BOOKS_LIBRARY_PATH}"
+            nohup bash -c "sleep 10; exec node '${BOOTSTRAP_JS}'" >> "${LOG_FILE}" 2>&1 &
+        fi
+    fi
+    # 启动后清理 AI / 成就数据表（sleep 10s 保守等待 initDatabase 完成所有表创建和迁移）
+    DROP_JS="${TRIM_APPDEST}/server/drop-tables.js"
+    if [ -f "$DROP_JS" ]; then
+        log_msg "AI / Achievement table cleanup scheduled (post-startup)"
+        nohup bash -c "sleep 10; exec node '${DROP_JS}'" >> "${LOG_FILE}" 2>&1 &
+    fi
+    return 0
+}
+
+stop_process() {
+    log_msg "Stopping 惬意阅读..."
+
+    if [ -r "${PID_FILE}" ]; then
+        pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
+
+        log_msg "pid=${pid}"
+        if ! check_process "${pid}"; then
+            rm -f "${PID_FILE}"
+            log_msg "remove pid file"
+            return
+        fi
+
+        log_msg "send TERM signal to PID:${pid}..."
+        kill -TERM ${pid} >> "${LOG_FILE}" 2>&1
+
+        local count=0
+        while check_process "${pid}" && [ $count -lt 10 ]; do
+            sleep 1
+            count=$((count + 1))
+            log_msg "waiting process terminal... (${count}s/10s)"
+        done
+
+        if check_process "${pid}"; then
+            log_msg "send KILL signal to PID:${pid}..."
+            kill -KILL ${pid}
+            sleep 1
+            rm -f "${PID_FILE}"
+        else
+            log_msg "process killed..."
+        fi
+    fi
+
+    # 清理端口残留
+    fuser -k -n tcp "$APP_PORT" 2>/dev/null || true
+    log_msg "Port $APP_PORT released."
+
+    return 0
+}
+
+check_process() {
+    local pid=$1
+    if kill -0 "${pid}" 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+status() {
+    if [ -f "${PID_FILE}" ]; then
+        pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
+        if check_process "${pid}"; then
+            return 0
+        fi
+    fi
+    return 3
+}
+
+case "$1" in
+    start)
+        start_process
+        ;;
+    stop)
+        stop_process
+        ;;
+    status)
+        status
+        ;;
+    restart)
+        stop_process
+        start_process
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|status}"
+        exit 1
+        ;;
+esac

@@ -1,0 +1,100 @@
+#!/bin/bash
+# 配置变更回调脚本
+# 当用户在向导中修改配置并保存时触发
+# 可以在这里更新配置文件、同步 manifest 等
+
+LOG_FILE="${TRIM_PKGVAR}/config.log"
+echo "$(date) - Config callback script executed" >> "${LOG_FILE}"
+
+# 获取用户选择的端口，默认为 8344
+TARGET_PORT="${custom_port:-8344}"
+echo "User selected port (config): ${TARGET_PORT}" >> "${LOG_FILE}"
+
+# 写入凭据标记文件，通知 Node.js 应用 Wizard 中的管理员凭据
+touch "${TRIM_PKGVAR}/.apply_credentials"
+echo "已创建凭据标记文件" >> "${LOG_FILE}"
+
+# ---------------------------------------------------------
+# 0. Persist Accessible Paths
+# ---------------------------------------------------------
+ACCESSIBLE_PATHS_FILE="${TRIM_PKGVAR}/accessible_paths.txt"
+echo "Persisting accessible paths to ${ACCESSIBLE_PATHS_FILE}..." >> "${LOG_FILE}"
+
+if [ -n "${TRIM_DATA_ACCESSIBLE_PATHS}" ]; then
+    printf '%s' "${TRIM_DATA_ACCESSIBLE_PATHS}" | tr ':' '\n' | sed '/^[[:space:]]*$/d' > "${ACCESSIBLE_PATHS_FILE}"
+    echo "Paths persisted from TRIM_DATA_ACCESSIBLE_PATHS." >> "${LOG_FILE}"
+else
+    : > "${ACCESSIBLE_PATHS_FILE}"
+    echo "TRIM_DATA_ACCESSIBLE_PATHS is empty, file cleared." >> "${LOG_FILE}"
+fi
+
+# ---------------------------------------------------------
+# 1. Fix UI Config
+# ---------------------------------------------------------
+
+UI_CONFIG_CANDIDATES=(
+    "${TRIM_APPDEST}/ui/config"
+    "${TRIM_APPDEST}/app/ui/config"
+)
+
+UI_CONFIG_FOUND=""
+
+for config in "${UI_CONFIG_CANDIDATES[@]}"; do
+    if [ -f "$config" ]; then
+        UI_CONFIG_FOUND="$config"
+        break
+    fi
+done
+
+if [ -z "$UI_CONFIG_FOUND" ]; then
+    UI_CONFIG_FOUND=$(find "${TRIM_APPDEST}" -name "config" | grep "/ui/" | head -n 1)
+fi
+
+if [ -n "$UI_CONFIG_FOUND" ]; then
+    echo "Found UI config at: ${UI_CONFIG_FOUND}" >> "${LOG_FILE}"
+    echo "Updating port to ${TARGET_PORT}..." >> "${LOG_FILE}"
+
+    # Replace port using sed
+    sed -i "s/\"port\"[[:space:]]*:[[:space:]]*\"[0-9]*\"/\"port\": \"${TARGET_PORT}\"/g" "$UI_CONFIG_FOUND"
+
+    if grep -q "\"port\": \"${TARGET_PORT}\"" "$UI_CONFIG_FOUND"; then
+        echo "SUCCESS: UI config updated." >> "${LOG_FILE}"
+    else
+        echo "ERROR: UI config update failed." >> "${LOG_FILE}"
+    fi
+else
+    echo "ERROR: UI config file not found anywhere!" >> "${LOG_FILE}"
+fi
+
+# ---------------------------------------------------------
+# 2. Fix Manifest (System Settings)
+# ---------------------------------------------------------
+
+MANIFEST_FOUND="/var/apps/${TRIM_APPNAME}/manifest"
+
+if [ -f "$MANIFEST_FOUND" ]; then
+    echo "Found Manifest at: ${MANIFEST_FOUND}" >> "${LOG_FILE}"
+    echo "Updating service_port to ${TARGET_PORT}..." >> "${LOG_FILE}"
+
+    chmod u+w "$MANIFEST_FOUND" 2>> "${LOG_FILE}"
+
+    TEMP_MANIFEST="${TRIM_PKGVAR}/manifest.tmp"
+
+    if sed "s/^service_port[ \t]*=.*$/service_port          = ${TARGET_PORT}/" "$MANIFEST_FOUND" > "$TEMP_MANIFEST"; then
+        cat "$TEMP_MANIFEST" > "$MANIFEST_FOUND"
+        rm -f "$TEMP_MANIFEST"
+        echo "Sed executed successfully." >> "${LOG_FILE}"
+    else
+        echo "Sed failed." >> "${LOG_FILE}"
+    fi
+
+    if grep -q "service_port[[:space:]]*=[[:space:]]*${TARGET_PORT}" "$MANIFEST_FOUND"; then
+        echo "SUCCESS: Manifest updated." >> "${LOG_FILE}"
+    else
+        echo "ERROR: Manifest update failed." >> "${LOG_FILE}"
+    fi
+else
+    echo "WARNING: Manifest file not found." >> "${LOG_FILE}"
+fi
+
+exit 0

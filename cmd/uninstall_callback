@@ -1,0 +1,94 @@
+#!/bin/bash
+
+LOG_FILE="${TRIM_PKGVAR}/uninstall.log"
+echo "$(date) - Uninstall cleanup started" >> "${LOG_FILE}"
+
+# 1. Kill by PID file if it exists
+PID_FILE="${TRIM_PKGVAR}/app.pid"
+if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    if [ -n "$PID" ]; then
+        echo "Found PID file with PID: $PID" >> "${LOG_FILE}"
+        if kill -0 "$PID" 2>/dev/null; then
+             echo "Killing process $PID..." >> "${LOG_FILE}"
+             kill -9 "$PID" 2>/dev/null
+        else
+             echo "Process $PID not running." >> "${LOG_FILE}"
+        fi
+    fi
+    rm -f "$PID_FILE"
+fi
+
+# 2. Aggressive cleanup of orphaned processes
+echo "Scanning for orphaned processes..." >> "${LOG_FILE}"
+
+CANDIDATE_PIDS=$(pgrep -f "node server.js")
+
+if [ -n "$CANDIDATE_PIDS" ]; then
+    for pid in $CANDIDATE_PIDS; do
+        if [ "$pid" == "$$" ]; then continue; fi
+
+        if [ -d "/proc/$pid" ]; then
+            CWD=$(readlink "/proc/$pid/cwd" 2>/dev/null)
+
+            if [[ "$CWD" == "$TRIM_APPDEST"* ]]; then
+                echo "Found orphan process $pid in $CWD. Killing..." >> "${LOG_FILE}"
+                kill -9 "$pid" 2>/dev/null
+            else
+                echo "Skipping process $pid (CWD: $CWD)" >> "${LOG_FILE}"
+            fi
+        fi
+    done
+else
+    echo "No node server.js processes found." >> "${LOG_FILE}"
+fi
+
+# 3. Force kill by port (Last Resort Safety Net)
+DEFAULT_PORT=8344
+PORT_PID=$(lsof -t -i:$DEFAULT_PORT -sTCP:LISTEN)
+if [ -n "$PORT_PID" ]; then
+    CMDLINE=$(cat /proc/$PORT_PID/cmdline 2>/dev/null)
+    if [[ "$CMDLINE" == *"node"* ]] && [[ "$CMDLINE" == *"server.js"* ]]; then
+         echo "Port $DEFAULT_PORT is still held by node process $PORT_PID. Killing..." >> "${LOG_FILE}"
+         kill -9 "$PORT_PID" 2>/dev/null
+    fi
+fi
+
+echo "Process cleanup completed." >> "${LOG_FILE}"
+
+# ---------------------------------------------------------
+# 4. 根据用户选择删除数据
+# ---------------------------------------------------------
+if [ "$delete_data" = "true" ]; then
+    echo "User requested data deletion. Removing data directories..." >> "${LOG_FILE}"
+
+    if [ -n "$TRIM_PKGVAR" ] && [ -d "$TRIM_PKGVAR" ]; then
+        echo "Removing system data directory: $TRIM_PKGVAR" >> "${LOG_FILE}"
+        rm -rf "$TRIM_PKGVAR"
+    fi
+
+    if [ -n "$TRIM_PKGETC" ] && [ -d "$TRIM_PKGETC" ]; then
+        echo "Removing config directory: $TRIM_PKGETC" >> "${LOG_FILE}"
+        rm -rf "$TRIM_PKGETC"
+    fi
+
+    # 删除用户数据目录 (存储在共享文件夹中的 qyread 目录，默认值须与 cmd/main 保持一致)
+    USER_DATA_ROOT="${TRIM_DATA_SHARE_PATHS%%:*}"
+    APP_SUBDIR="${wizard_data_subdir:-qyread}"
+
+    if [ -n "$USER_DATA_ROOT" ]; then
+        USER_DATA_DIR="${USER_DATA_ROOT}/${APP_SUBDIR}"
+        if [ -d "$USER_DATA_DIR" ]; then
+            echo "Removing user data directory: $USER_DATA_DIR" >> "${LOG_FILE}"
+            rm -rf "$USER_DATA_DIR"
+        fi
+    fi
+
+    echo "Data deletion completed." >> "${LOG_FILE}"
+else
+    echo "User chose to keep data. Data directories preserved." >> "${LOG_FILE}"
+fi
+
+echo "Uninstall cleanup completed." >> "${LOG_FILE}"
+
+exit 0

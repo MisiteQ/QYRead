@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/icon_64.png" />
+    <link rel="apple-touch-icon" href="/icon_192.png" />
+    <link rel="manifest" href="/api/public/pwa-profile?v=0.1.9" crossorigin="use-credentials" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="惬意阅读" />
+    <title>惬意阅读</title>
+    <script type="module" crossorigin src="/assets/index-bd334e7e.js?v=0.1.9"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-react-4b82aed3.js?v=0.1.9">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-icons-f9b96ac7.js?v=0.1.9">
+    <link rel="stylesheet" href="/assets/index-a1ca2145.css?v=0.1.9">
+  </head>
+  <body>
+    <div id="root"></div>
+    
+    <script>
+      // 移动端样式保活自愈机制：防止 WebView 磁盘缓存污染或 CDN 偶发丢包导致 CSS 样式未生效
+      (function() {
+        function ensureStylesApplied() {
+          var testEl = document.createElement('div');
+          testEl.className = 'flex';
+          testEl.style.position = 'absolute';
+          testEl.style.opacity = '0';
+          testEl.style.pointerEvents = 'none';
+          document.body.appendChild(testEl);
+          var computed = window.getComputedStyle(testEl);
+          var isCssApplied = computed && computed.display === 'flex';
+          document.body.removeChild(testEl);
+
+          if (!isCssApplied) {
+            var links = document.querySelectorAll('link[rel="stylesheet"]');
+            for (var i = 0; i < links.length; i++) {
+              var href = links[i].getAttribute('href');
+              if (href && href.indexOf('assets') !== -1) {
+                var freshUrl = href + (href.indexOf('?') === -1 ? '?' : '&') + '_v=' + Date.now();
+                fetch(freshUrl)
+                  .then(function(res) { return res.text(); })
+                  .then(function(css) {
+                    if (css && css.indexOf('{') !== -1) {
+                      var styleEl = document.createElement('style');
+                      styleEl.setAttribute('data-healed', 'true');
+                      styleEl.textContent = css;
+                      document.head.appendChild(styleEl);
+                    }
+                  })
+                  .catch(function(err) {});
+              }
+            }
+          }
+        }
+
+        if (document.readyState === 'complete') {
+          setTimeout(ensureStylesApplied, 200);
+        } else {
+          window.addEventListener('DOMContentLoaded', function() {
+            setTimeout(ensureStylesApplied, 200);
+          });
+        }
+      })();
+
+      // 移动端 WebView 应急白屏检测与自愈兜底
+      window.__appErrors = [];
+      window.__copyErrors = function () {
+        var log = JSON.stringify(window.__appErrors, null, 2);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(log).then(function () {
+            alert('错误诊断日志已复制到剪贴板');
+          }).catch(function () {
+            prompt('请长按复制错误日志：', log);
+          });
+        } else {
+          prompt('请长按复制错误日志：', log);
+        }
+      };
+
+      function renderErrorDialog() {
+        var root = document.getElementById('root');
+        if (!root || root.children.length > 0) return;
+        var allErrorsHtml = window.__appErrors.map(function (item) {
+          return '<div style="margin-bottom:8px;padding:8px 10px;background:#fef2f2;border:1px solid #fee2e2;border-radius:8px;text-align:left;">' +
+            '<div style="color:#b91c1c;font-weight:600;font-size:12px;margin-bottom:2px;">[' + item.time + '] ' + item.title + '</div>' +
+            '<div style="color:#7f1d1d;font-family:monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;">' + item.detail + '</div>' +
+            (item.stack ? '<div style="color:#6b7280;font-family:monospace;font-size:10px;margin-top:4px;max-height:80px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">' + item.stack + '</div>' : '') +
+          '</div>';
+        }).join('');
+
+        root.innerHTML = '<div style="display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;background:#f8fafc;color:#0f172a;">' +
+          '<div style="max-width:400px;width:100%;padding:24px 20px;background:#fff;border-radius:18px;box-shadow:0 12px 30px -8px rgba(0,0,0,0.12);border:1px solid #e2e8f0;text-align:center;">' +
+            '<div style="font-size:32px;margin-bottom:8px;">⚠️</div>' +
+            '<div style="font-size:17px;font-weight:700;margin-bottom:4px;">应用加载遇到异常</div>' +
+            '<div style="font-size:12px;color:#64748b;margin-bottom:14px;">页面在启动过程中遇到阻断性错误：</div>' +
+            '<div style="max-height:220px;overflow-y:auto;margin-bottom:16px;">' + allErrorsHtml + '</div>' +
+            '<div style="display:flex;gap:8px;margin-bottom:10px;">' +
+              '<button onclick="window.__copyErrors()" style="flex:1;padding:10px;background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;">📋 复制诊断信息</button>' +
+              '<button onclick="location.reload();" style="flex:1;padding:10px;background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;">🔄 重新加载</button>' +
+            '</div>' +
+            '<button onclick="sessionStorage.clear();location.href=\'/\';" style="width:100%;padding:11px;background:#2563eb;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;">清理缓存并刷新</button>' +
+            '<button onclick="sessionStorage.clear();localStorage.clear();location.href=\'/login\';" style="width:100%;padding:9px;background:#f8fafc;color:#64748b;border:1px solid #e2e8f0;border-radius:10px;font-size:12px;cursor:pointer;">清除本地数据重登</button>' +
+          '</div></div>';
+      }
+
+      function recordAndShowError(title, errDetail, stack) {
+        window.__appErrors.push({
+          title: title,
+          detail: errDetail,
+          stack: stack,
+          time: new Date().toLocaleTimeString()
+        });
+        setTimeout(function () {
+          var root = document.getElementById('root');
+          if (root && root.children.length === 0) {
+            renderErrorDialog();
+          }
+        }, 2000);
+      }
+
+      window.addEventListener('error', function (event) {
+        var msg = event.message || (event.error && event.error.message) || '脚本加载或运行异常';
+        var loc = (event.filename || '') + (event.lineno ? (':' + event.lineno + ':' + event.colno) : '');
+        var stack = event.error && event.error.stack ? event.error.stack : '';
+        if (event.target && (event.target.src || event.target.href)) {
+          msg = '静态资源加载失败: ' + (event.target.src || event.target.href);
+        }
+        recordAndShowError(msg, loc ? ('来源: ' + loc) : msg, stack);
+      }, true);
+
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event.reason;
+        var msg = (reason && (reason.message || reason.stack)) ? (reason.message || String(reason)) : 'Promise 异步未捕获异常';
+        var stack = reason && reason.stack ? reason.stack : '';
+        recordAndShowError('异步未捕获异常', msg, stack);
+      });
+    </script>
+
+    <script>
+      // 小说搜索下载入口：可拖拽浮动按钮（按住移动≥8px 才进入拖拽，松手吸附左右；短按直接跳转）
+      // 由于前端 bundle 为编译产物无法直接注入路由，通过 HTML 壳层挂载入口
+      (function () {
+        var path = location.pathname.replace(/\/+$/, '') || '/';
+        var onLogin = path === '/login' || path.indexOf('/login') === 0;
+        if (onLogin) return;
+
+        var POS_KEY = 'qy_novel_btn_pos';
+        var M = 12, DRAG_THRESHOLD = 8;
+
+        var style = document.createElement('style');
+        style.textContent =
+          '#qy-novel-btn{position:fixed;z-index:9998;display:inline-flex;align-items:center;gap:4px;' +
+          'height:44px;padding:0 16px;border-radius:22px;font-size:14px;font-weight:600;' +
+          'text-decoration:none;user-select:none;-webkit-user-select:none;touch-action:none;' +
+          '-webkit-tap-highlight-color:transparent;' +
+          'backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);' +
+          'background:#fff;color:#2563eb;border:1px solid #dbeafe;' +
+          'transition:left .18s ease,right .18s ease,top .18s ease,filter .15s,opacity .2s;opacity:0;' +
+          'animation:qyNovelFloat 3s ease-in-out infinite}' +
+          '@keyframes qyNovelFloat{' +
+          '0%,100%{transform:translateY(0);box-shadow:0 4px 14px rgba(37,99,235,.22)}' +
+          '50%{transform:translateY(-6px);box-shadow:0 10px 22px rgba(37,99,235,.38)}}' +
+          '#qy-novel-btn.dragging{animation:none;transition:opacity .2s;opacity:.85;box-shadow:0 8px 20px rgba(0,0,0,.22)}' +
+          '#qy-novel-btn:active{filter:brightness(.92)}' +
+          '@media (prefers-color-scheme:dark){#qy-novel-btn{background:#2563eb;color:#fff;border-color:#3b82f6}}' +
+          '@media (prefers-reduced-motion:reduce){#qy-novel-btn{animation:none;box-shadow:0 4px 14px rgba(0,0,0,.18)}}';
+        document.head.appendChild(style);
+
+        var btn = document.createElement('div');
+        btn.id = 'qy-novel-btn';
+        btn.textContent = '🔍 小说';
+        btn.setAttribute('aria-label', '小说搜索下载（按住可拖动）');
+        btn.title = '小说搜索下载（按住可拖动）';
+        btn.style.cursor = 'grab';
+        document.body.appendChild(btn);
+
+        function loadPos() {
+          try { return JSON.parse(localStorage.getItem(POS_KEY)) || {}; } catch (e) { return {}; }
+        }
+        function clampTop(top) {
+          var max = window.innerHeight - btn.offsetHeight - M;
+          top = Math.max(M, Math.min(top, Math.max(M, max)));
+          return Math.round(top);
+        }
+        function place(animate) {
+          var p = loadPos();
+          var side = p.side === 'left' ? 'left' : 'right';
+          if (!animate) btn.classList.add('dragging');
+          if (side === 'left') {
+            btn.style.left = 'max(' + M + 'px, env(safe-area-inset-left))';
+            btn.style.right = 'auto';
+          } else {
+            btn.style.right = 'max(' + M + 'px, env(safe-area-inset-right))';
+            btn.style.left = 'auto';
+          }
+          if (typeof p.top === 'number') {
+            btn.style.top = clampTop(p.top) + 'px';
+            btn.style.bottom = 'auto';
+          } else {
+            btn.style.bottom = 'max(' + M + 'px, env(safe-area-inset-bottom))';
+            btn.style.top = 'auto';
+          }
+          if (!animate) requestAnimationFrame(function () { btn.classList.remove('dragging'); });
+        }
+        place(false);
+        requestAnimationFrame(function () { btn.style.opacity = '1'; });
+
+        var sx, sy, startLeft, startTop, dragging, w, h, moved;
+        btn.addEventListener('pointerdown', function (e) {
+          if (e.button !== undefined && e.button !== 0) return;
+          var r = btn.getBoundingClientRect();
+          w = r.width; h = r.height;
+          sx = e.clientX; sy = e.clientY;
+          startLeft = r.left; startTop = r.top;
+          dragging = false;
+          btn.clicked = false;
+          btn.setPointerCapture && btn.setPointerCapture(e.pointerId);
+        });
+        btn.addEventListener('pointermove', function (e) {
+          if (sx === undefined) return;
+          var dx = e.clientX - sx, dy = e.clientY - sy;
+          if (!dragging && Math.max(Math.abs(dx), Math.abs(dy)) < DRAG_THRESHOLD) return;
+          if (!dragging) {
+            dragging = true;
+            btn.classList.add('dragging');
+            btn.style.right = 'auto';
+          }
+          var nl = Math.max(M, Math.min(window.innerWidth - w - M, startLeft + dx));
+          var nt = clampTop(startTop + dy);
+          btn.style.left = nl + 'px';
+          btn.style.top = nt + 'px';
+        });
+        function endDrag(e) {
+          if (sx === undefined) return;
+          if (dragging) {
+            var r = btn.getBoundingClientRect();
+            var side = (r.left + w / 2) < (window.innerWidth / 2) ? 'left' : 'right';
+            var top = clampTop(r.top);
+            try { localStorage.setItem(POS_KEY, JSON.stringify({ side: side, top: top })); } catch (err) {}
+            btn.classList.remove('dragging');
+            btn.style.top = top + 'px';
+            if (side === 'left') { btn.style.left = 'max(' + M + 'px, env(safe-area-inset-left))'; btn.style.right = 'auto'; }
+            else { btn.style.right = 'max(' + M + 'px, env(safe-area-inset-right))'; btn.style.left = 'auto'; }
+          } else {
+            // 短按（未移动到阈值）才跳转；用 btn.clicked 标记避免合成 click 重入
+            if (!btn.clicked) { btn.clicked = true; location.href = '/api/novel/page'; }
+          }
+          sx = sy = undefined;
+        }
+        btn.addEventListener('pointerup', endDrag);
+        btn.addEventListener('pointercancel', endDrag);
+        window.addEventListener('resize', function () { place(true); });
+      })();
+    </script>
+
+    <!-- 壳层增强：内容宽度调节 / 读后感 / 已下线功能入口隐藏（AI/听书/成就） -->
+    <script src="/assets/enhancer.js?v=0.1.9"></script>
+  </body>
+</html>

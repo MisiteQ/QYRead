@@ -1,0 +1,126 @@
+[
+    {
+        "stepTitle": "安装说明",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "惬意阅读：安装后通过桌面图标打开。首次进入请使用下方设置的管理员账号登录，书籍、封面与阅读数据保存在应用共享目录 qyread/data，可在「文件管理」中直接查看。支持 TXT/EPUB/MOBI/AZW3/PDF/CBZ/CBR/CB7 多格式书库、沉浸阅读、AI 听书、批注笔记、读后感与小说搜索下载。"
+            }
+        ]
+    },
+    {
+        "stepTitle": "端口与管理员配置",
+        "items": [
+            {
+                "type": "text",
+                "field": "custom_port",
+                "label": "应用端口",
+                "initValue": "8344",
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请输入端口号"
+                    },
+                    {
+                        "pattern": "^[0-9]+$",
+                        "message": "端口号必须是数字"
+                    }
+                ]
+            },
+            {
+                "type": "text",
+                "field": "wizard_admin_username",
+                "label": "管理员用户名",
+                "initValue": "admin",
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请输入管理员用户名"
+                    },
+                    {
+                        "pattern": "^[a-zA-Z0-9_]+$",
+                        "message": "用户名只能包含字母、数字和下划线"
+                    }
+                ]
+            },
+            {
+                "type": "password",
+                "field": "wizard_admin_password",
+                "label": "管理员密码（默认：admin123）",
+                "initValue": "admin123",
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请输入管理员密码"
+                    },
+                    {
+                        "min": 8,
+                        "message": "密码长度不能少于8位"
+                    }
+                ]
+            },
+            {
+                "type": "password",
+                "field": "wizard_admin_password_confirm",
+                "label": "确认密码（默认：admin123）",
+                "initValue": "admin123",
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请确认密码"
+                    },
+                    {
+                        "compare": "wizard_admin_password",
+                        "message": "两次输入密码不一致"
+                    }
+                ]
+            },
+            {
+                "type": "tips",
+                "helpText": "默认端口 8344 用于局域网直连；如被占用请改为其他可用端口。管理员账号用于登录后台与阅读中心。"
+            }
+        ]
+    },
+    {
+        "stepTitle": "数据存储",
+        "items": [
+            {
+                "type": "text",
+                "field": "wizard_data_subdir",
+                "label": "数据存储子目录",
+                "initValue": "qyread",
+                "helpText": "将在您选择的应用数据存储空间中创建此文件夹，用于存储数据库和上传的书籍文件",
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请输入数据存放目录名称"
+                    },
+                    {
+                        "pattern": "^[a-zA-Z0-9_-]+$",
+                        "message": "只能包含字母、数字、下划线和连字符"
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "stepTitle": "现有书籍文件夹",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "如果您的 NAS 中已经存放了电子书，可在此填写该文件夹的<b>绝对路径</b>，安装完成后系统会自动把它注册为公共书库并导入其中的书籍（支持子文件夹递归扫描）。"
+            },
+            {
+                "type": "text",
+                "field": "wizard_books_dir",
+                "label": "书籍文件夹路径（可留空）",
+                "initValue": "",
+                "helpText": "例如 /vol1/1000/书籍 ；可在飞牛「文件管理」中进入目标文件夹后查看/复制其路径。留空则跳过，之后随时可在应用内「书库管理」中添加。建议路径位于本机内置存储空间，外接硬盘或网络挂载盘需确保读取权限。"
+            },
+            {
+                "type": "tips",
+                "helpText": "提示：安装时会自动授予本应用读取该文件夹的权限，不会移动、修改或删除其中的任何文件。"
+            }
+        ]
+    }
+]
