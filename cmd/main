@@ -1,5 +1,6 @@
 #!/bin/bash
-set -e
+# 注意：刻意不使用 set -e。本脚本由 fnOS 安装/升级事务调用，
+# 任何非关键命令失败都不应导致服务启动流程整体中止。
 
 LOG_FILE="${TRIM_PKGVAR}/info.log"
 PID_FILE="${TRIM_PKGVAR}/app.pid"
@@ -24,22 +25,28 @@ else
     STORAGE_ROOT="${TRIM_PKGVAR}"
 fi
 
-# Ensure data directories exist
-mkdir -p "$DATA_DIR"
+# Ensure data directories exist（存储盘偶有挂载延迟，失败时回退到应用私有目录）
+if ! mkdir -p "$DATA_DIR" 2>/dev/null; then
+    DATA_DIR="${TRIM_PKGVAR}/${APP_SUBDIR}"
+    STORAGE_ROOT="${TRIM_PKGVAR}"
+    mkdir -p "$DATA_DIR" 2>/dev/null || true
+fi
 
 LOG_FILE="${TRIM_PKGVAR}/info.log"
 
 # Port Configuration - 从 port.conf 读取（由 install_callback 保存）
 PORT_CONF="${TRIM_PKGVAR}/port.conf"
 if [ -f "$PORT_CONF" ]; then
-    source "$PORT_CONF"
+    # shellcheck disable=SC1090
+    source "$PORT_CONF" || true
 fi
 APP_PORT="${APP_PORT:-8344}"
 
 # 安装向导中选择的「现有书籍文件夹」（由 install_callback 保存，重启后仍生效）
 BOOKS_CONF="${TRIM_PKGVAR}/books_dir.conf"
 if [ -f "$BOOKS_CONF" ]; then
-    source "$BOOKS_CONF"
+    # shellcheck disable=SC1090
+    source "$BOOKS_CONF" || true
 fi
 export BOOKS_LIBRARY_PATH="${BOOKS_LIBRARY_PATH:-}"
 export BOOKS_LIBRARY_NAME="${BOOKS_LIBRARY_NAME:-我的书库}"
@@ -63,20 +70,88 @@ export UPLOAD_DIR="${DATA_DIR}/uploads"
 export LOG_DIR="${TRIM_PKGVAR}/logs"
 
 # Ensure upload dir exists
-mkdir -p "$UPLOAD_DIR"
-mkdir -p "$LOG_DIR"
+mkdir -p "$UPLOAD_DIR" 2>/dev/null || true
+mkdir -p "$LOG_DIR" 2>/dev/null || true
 
 export IMAGES_DIR="${DATA_DIR}/images"
-mkdir -p "$IMAGES_DIR"
+mkdir -p "$IMAGES_DIR" 2>/dev/null || true
 
-# Start Command
-CMD="node ${TRIM_APPDEST}/server/server.js"
+# Start Command（cd 到 server 目录，避免依赖工作目录的相对路径）
+SERVER_JS="${TRIM_APPDEST}/server/server.js"
+CMD="cd '${TRIM_APPDEST}/server' && exec node '${SERVER_JS}'"
 
 log_msg() {
     local msg="$(date '+%Y-%m-%d %H:%M:%S') - $1"
-    echo "$msg" | tee -a "${LOG_FILE}" >&2
+    echo "$msg" | tee -a "${LOG_FILE}" >&2 || true
     if [ -n "${TRIM_TEMP_LOGFILE}" ]; then
         echo "$msg" >> "${TRIM_TEMP_LOGFILE}" 2>&1 || true
+    fi
+}
+
+check_process() {
+    local pid=$1
+    [ -n "$pid" ] && kill -0 "${pid}" 2>/dev/null
+}
+
+# 端口是否已在监听（优先 bash 内建 /dev/tcp，无需额外权限）
+port_listening() {
+    (exec 3<>"/dev/tcp/127.0.0.1/${APP_PORT}") 2>/dev/null && { exec 3>&- 3<&-; return 0; }
+    return 1
+}
+
+free_stale_port() {
+    # 升级/异常退出后端口可能仍被旧进程占用，先清理，避免 EADDRINUSE 启动即退
+    if command -v fuser >/dev/null 2>&1; then
+        fuser -k -n tcp "$APP_PORT" 2>/dev/null || true
+        sleep 1
+    fi
+}
+
+# 真正拉起进程：setsid（若有）+ nohup 彻底脱离安装事务会话，
+# stdin 接 /dev/null 防止会话结束时 SIGHUP/SIGIO 误杀（此前偶发安装后未启动的根因）。
+launch_node() {
+    if command -v setsid >/dev/null 2>&1; then
+        setsid nohup bash -c "$CMD" </dev/null >> "${LOG_FILE}" 2>&1 &
+    else
+        nohup bash -c "$CMD" </dev/null >> "${LOG_FILE}" 2>&1 &
+    fi
+    local pid=$!
+    printf "%s" "$pid" > "${PID_FILE}"
+    echo "$pid"
+}
+
+# 启动后探活：node 初始化 sqlite/迁移可能需要数秒。
+# 进程提前退出则返回 1；端口起来或稳定存活超过宽限期返回 0。
+wait_ready() {
+    local pid=$1 i
+    for i in $(seq 1 30); do
+        if ! check_process "$pid"; then
+            return 1
+        fi
+        if port_listening; then
+            return 0
+        fi
+        sleep 1
+    done
+    # 30 秒仍未监听端口但进程活着：视为成功（可能端口探测受沙箱限制），不阻断安装
+    return 0
+}
+
+# 服务就绪后调度后台任务（首次启动与重试成功两条路径都必须执行）
+schedule_post_start() {
+    # 安装向导配置了「现有书籍文件夹」时，服务启动后在后台引导注册公共书库并首次扫描。
+    if [ -n "${BOOKS_LIBRARY_PATH}" ]; then
+        BOOTSTRAP_JS="${TRIM_APPDEST}/server/bootstrap-library.js"
+        if [ -f "$BOOTSTRAP_JS" ]; then
+            log_msg "Book library bootstrap scheduled: ${BOOKS_LIBRARY_PATH}"
+            nohup bash -c "sleep 10; exec node '${BOOTSTRAP_JS}'" </dev/null >> "${LOG_FILE}" 2>&1 &
+        fi
+    fi
+    # 启动后清理 AI / 成就数据表（sleep 10s 保守等待 initDatabase 完成所有表创建和迁移）
+    DROP_JS="${TRIM_APPDEST}/server/drop-tables.js"
+    if [ -f "$DROP_JS" ]; then
+        log_msg "AI / Achievement table cleanup scheduled (post-startup)"
+        nohup bash -c "sleep 10; exec node '${DROP_JS}'" </dev/null >> "${LOG_FILE}" 2>&1 &
     fi
 }
 
@@ -89,25 +164,42 @@ start_process() {
     log_msg "PORT: ${PORT}"
     log_msg "DATA_DIR: ${DATA_DIR}"
 
-    bash -c "${CMD}" >> "${LOG_FILE}" 2>&1 &
-    printf "%s" "$!" > "${PID_FILE}"
+    if [ ! -f "$SERVER_JS" ]; then
+        log_msg "启动失败：未找到 ${SERVER_JS}"
+        return 1
+    fi
 
-    # 安装向导配置了「现有书籍文件夹」时，服务启动后在后台引导注册公共书库并首次扫描。
-    # 独立进程、幂等执行（书库已存在会自行退出），失败不影响主服务运行。
-    if [ -n "${BOOKS_LIBRARY_PATH}" ]; then
-        BOOTSTRAP_JS="${TRIM_APPDEST}/server/bootstrap-library.js"
-        if [ -f "$BOOTSTRAP_JS" ]; then
-            log_msg "Book library bootstrap scheduled: ${BOOKS_LIBRARY_PATH}"
-            nohup bash -c "sleep 10; exec node '${BOOTSTRAP_JS}'" >> "${LOG_FILE}" 2>&1 &
-        fi
+    free_stale_port
+
+    local pid
+    pid=$(launch_node)
+    log_msg "node launched pid=${pid}, waiting for readiness..."
+
+    if wait_ready "$pid"; then
+        schedule_post_start
+        log_msg "惬意阅读 started successfully."
+        return 0
     fi
-    # 启动后清理 AI / 成就数据表（sleep 10s 保守等待 initDatabase 完成所有表创建和迁移）
-    DROP_JS="${TRIM_APPDEST}/server/drop-tables.js"
-    if [ -f "$DROP_JS" ]; then
-        log_msg "AI / Achievement table cleanup scheduled (post-startup)"
-        nohup bash -c "sleep 10; exec node '${DROP_JS}'" >> "${LOG_FILE}" 2>&1 &
+
+    # 首次启动即退出：清理后重试一次（覆盖存储盘/端口竞争类瞬时问题）
+    log_msg "进程在就绪前退出，3 秒后重试一次..."
+    rm -f "${PID_FILE}"
+    sleep 3
+    free_stale_port
+    pid=$(launch_node)
+    if wait_ready "$pid"; then
+        schedule_post_start
+        log_msg "惬意阅读 started on retry, pid=${pid}."
+        return 0
     fi
-    return 0
+
+    log_msg "启动失败（重试后仍未就绪），请查看日志: ${LOG_FILE}"
+    if [ -n "${TRIM_TEMP_LOGFILE}" ]; then
+        echo "---- 服务日志尾部 ----" >> "${TRIM_TEMP_LOGFILE}" 2>&1 || true
+        tail -n 30 "${LOG_FILE}" >> "${TRIM_TEMP_LOGFILE}" 2>&1 || true
+    fi
+    rm -f "${PID_FILE}"
+    return 1
 }
 
 stop_process() {
@@ -120,43 +212,35 @@ stop_process() {
         if ! check_process "${pid}"; then
             rm -f "${PID_FILE}"
             log_msg "remove pid file"
-            return
-        fi
-
-        log_msg "send TERM signal to PID:${pid}..."
-        kill -TERM ${pid} >> "${LOG_FILE}" 2>&1
-
-        local count=0
-        while check_process "${pid}" && [ $count -lt 10 ]; do
-            sleep 1
-            count=$((count + 1))
-            log_msg "waiting process terminal... (${count}s/10s)"
-        done
-
-        if check_process "${pid}"; then
-            log_msg "send KILL signal to PID:${pid}..."
-            kill -KILL ${pid}
-            sleep 1
-            rm -f "${PID_FILE}"
         else
-            log_msg "process killed..."
+            log_msg "send TERM signal to PID:${pid}..."
+            kill -TERM ${pid} >> "${LOG_FILE}" 2>&1 || true
+
+            local count=0
+            while check_process "${pid}" && [ $count -lt 10 ]; do
+                sleep 1
+                count=$((count + 1))
+                log_msg "waiting process terminal... (${count}s/10s)"
+            done
+
+            if check_process "${pid}"; then
+                log_msg "send KILL signal to PID:${pid}..."
+                kill -KILL ${pid} 2>/dev/null || true
+                sleep 1
+            else
+                log_msg "process killed..."
+            fi
+            rm -f "${PID_FILE}"
         fi
     fi
 
     # 清理端口残留
-    fuser -k -n tcp "$APP_PORT" 2>/dev/null || true
+    if command -v fuser >/dev/null 2>&1; then
+        fuser -k -n tcp "$APP_PORT" 2>/dev/null || true
+    fi
     log_msg "Port $APP_PORT released."
 
     return 0
-}
-
-check_process() {
-    local pid=$1
-    if kill -0 "${pid}" 2>/dev/null; then
-        return 0
-    else
-        return 1
-    fi
 }
 
 status() {
@@ -165,6 +249,8 @@ status() {
         if check_process "${pid}"; then
             return 0
         fi
+        # 进程已不存在，顺手清理僵尸 pid 文件
+        rm -f "${PID_FILE}" 2>/dev/null || true
     fi
     return 3
 }

@@ -1,9 +1,10 @@
-/*! 惬意阅读 壳层增强（v0.1.10）
+/*! 惬意阅读 壳层增强（v0.1.11）
  *  前端 bundle 为编译产物，所有增强均通过 DOM 观察外挂实现，不侵入 React 状态。
  *  功能：① 内容宽度滑块 ② 详情页读后感按钮 ③ 书架视图切换（大/中/小/列表，列表带书籍信息）
  *       ④ 阅读器外壳主题跟随 ⑤ 管理中心 AI/成就 tab 容器移除
  *       ⑥ 落地页话术改写 ⑦ 关于页版本号同步 + 致谢信息 ⑧ 阅读自动加入书架并提示
  *       ⑨ TTS 默认使用 Edge 在线引擎 ⑩ “我的”页用户卡片禁用跳转（成就页已下线）
+ *       ⑪ 阅读器白噪音背景音（白/粉/棕噪、雨声、海浪、篝火，仅阅读页显示，离开自动停止）
  *  说明：AI 助手 / 成就中心 / 分享功能已下线；TTS 听书使用 Edge 在线引擎。
  */
 (function () {
@@ -617,52 +618,67 @@
   var SHELF_META_TTL = 30000;
   var BS_CACHE_KEY = 'lr_library_books_cache';  // bundle 自己存的书架全量缓存
   var shelfMetaMap = null, shelfMetaAt = 0, shelfMetaLoading = false;
+  var shelfMetaReqId = 0, shelfMetaEmptyRetries = 0, SHELF_META_EMPTY_MAX = 6;
+  // 列表类接口响应归一：兼容数组 / {books} / {items} / {data}
+  function normalizeList(d) {
+    if (Array.isArray(d)) return d;
+    if (d && Array.isArray(d.books)) return d.books;
+    if (d && Array.isArray(d.items)) return d.items;
+    if (d && Array.isArray(d.data)) return d.data;
+    return [];
+  }
   function readBooksFromCache() {
     try {
       var raw = sessionStorage.getItem(BS_CACHE_KEY);
       if (!raw) return null;
-      var obj = JSON.parse(raw);
-      if (Array.isArray(obj)) return obj;
+      var arr = normalizeList(JSON.parse(raw));
+      return arr.length ? arr : null;  // 空数组等同缓存未就绪，触发等待/重试
     } catch (e) {}
     return null;
   }
   function loadShelfMeta() {
     if (shelfMetaLoading) return;
     shelfMetaLoading = true;
-    // 书籍全量数据：bundle 已经从 /api/books?in_bookshelf=1&limit=1000 拉过并存在 sessionStorage，
-    // 直接读缓存，避免与 bundle 的请求路径/鉴权方式产生分叉。
-    var arr = readBooksFromCache();
-    if (!arr) {
-      // 兜底：缓存缺失时按 bundle 的路径自行请求一次
+    var reqId = ++shelfMetaReqId, waits = 0;
+    // ① 优先等 bundle 自己的请求把缓存写入（冷启动时通常 1~2 秒内完成），避免重复请求/鉴权竞态
+    function waitCache() {
+      var arr = readBooksFromCache();
+      if (arr && arr.length) { finishMeta(arr, reqId); return; }
+      if (++waits <= 6) { setTimeout(waitCache, 400); return; }
+      // ② 缓存始终缺失，按 bundle 的路径自行兜底请求一次
       var token = localStorage.getItem('lr_token') || '';
       fetch('/api/books?in_bookshelf=1&limit=1000', {
         credentials: 'include',
         headers: token ? { Authorization: 'Bearer ' + token } : {}
       }).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; })
         .then(function (data) {
-          if (Array.isArray(data) && data.length) {
-            try { sessionStorage.setItem(BS_CACHE_KEY, JSON.stringify(data)); } catch (e) {}
-            finishMeta(data);
-          } else {
-            finishMeta([]);
+          var arr2 = normalizeList(data);
+          if (arr2.length) {
+            try { sessionStorage.setItem(BS_CACHE_KEY, JSON.stringify(arr2)); } catch (e) {}
           }
+          finishMeta(arr2, reqId);
         });
-      return;
     }
-    finishMeta(arr);
+    waitCache();
   }
-  function finishMeta(arr) {
+  function finishMeta(arr, reqId) {
     var token = localStorage.getItem('lr_token') || '';
     fetch('/api/stats/reading-progress?limit=500', {
       credentials: 'include',
       headers: token ? { Authorization: 'Bearer ' + token } : {}
     }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
       .then(function (progResp) {
-        var prog = progResp && Array.isArray(progResp.items) ? progResp.items : [];
+        // 已有更新的请求在途时，本次结果作废
+        if (reqId !== shelfMetaReqId) { shelfMetaLoading = false; return; }
+        var prog = normalizeList(progResp);
         var progMap = new Map();
-        prog.forEach(function (p) { if (p && p.book_id != null) progMap.set(String(p.book_id), p); });
-        shelfMetaMap = new Map();
-        arr.forEach(function (b) {
+        prog.forEach(function (p) {
+          if (!p) return;
+          var id = p.book_id != null ? p.book_id : p.id;
+          if (id != null) progMap.set(String(id), p);
+        });
+        var map = new Map();
+        (arr || []).forEach(function (b) {
           if (!b) return;
           var key = String(b.id != null ? b.id : (b.book_id != null ? b.book_id : b.title));
           if (!key) return;
@@ -686,23 +702,31 @@
             }
           }
           if (p) {
-            merged.progress_percent = Number(p.progress_percent) || 0;
-            merged.chapter_title = p.chapter_title || null;
+            merged.progress_percent = Number(p.progress_percent != null ? p.progress_percent
+              : (p.percent != null ? p.percent : p.progress)) || 0;
+            merged.chapter_title = p.chapter_title || p.chapter || null;
             merged.last_read = p.last_read || null;
-            merged.chapter_index = p.chapter_index || 0;
+            merged.chapter_index = p.chapter_index != null ? p.chapter_index : (p.chapterIndex || 0);
           }
-          shelfMetaMap.set(key, merged);
+          map.set(key, merged);
           if (b.title) {
-            shelfMetaMap.set(String(b.title), merged);
+            map.set(String(b.title), merged);
             // React 渲染到 DOM 时会砍掉扩展名做显示名，额外存一份去扩展名的 key
             var stripped = String(b.title).replace(/\.(epub|txt|mobi|pdf|azw3|fb2|cbz|cbr|cb7)$/i, '');
-            if (stripped !== String(b.title)) shelfMetaMap.set(stripped, merged);
+            if (stripped !== String(b.title)) map.set(stripped, merged);
           }
         });
+        shelfMetaMap = map;
         shelfMetaAt = Date.now();
-      }).catch(function () { shelfMetaAt = Date.now(); })
-      .then(function () {
         shelfMetaLoading = false;
+        // 空结果但 DOM 里明明有书（冷启动竞态/瞬时鉴权失败）：限时重试，避免空 Map 被 TTL 冻结
+        var hasDomTitles = !!document.querySelector('[data-qy-title]');
+        if (!map.size && hasDomTitles && shelfMetaEmptyRetries < SHELF_META_EMPTY_MAX) {
+          shelfMetaEmptyRetries++;
+          setTimeout(function () { try { loadShelfMeta(); } catch (e) {} }, 1500);
+        } else if (map.size) {
+          shelfMetaEmptyRetries = 0;
+        }
         try { enrichListMeta(); } catch (e) {}
       });
   }
@@ -779,6 +803,298 @@
       if (meta.textContent !== line) meta.textContent = line;
     });
   }
+
+  /* ===================== 4g. 阅读器白噪音（仅 /read/:id 页面，WebAudio 纯合成，无音频文件） ===================== */
+  var WN_KEY_SOUND = 'qy_wn_sound';
+  var WN_KEY_VOL = 'qy_wn_volume';
+  var WN_SOUNDS = [
+    { id: 'white', name: '白噪音' },
+    { id: 'pink',  name: '粉噪音' },
+    { id: 'brown', name: '棕噪音' },
+    { id: 'rain',  name: '雨声' },
+    { id: 'ocean', name: '海浪' },
+    { id: 'fire',  name: '篝火' }
+  ];
+  var wnCtx = null, wnMaster = null, wnBufs = null, wnBag = null, wnActive = null;
+  var wnPanelOpen = false, wnLastReading = false;
+
+  function wnVol() {
+    var v = parseFloat(localStorage.getItem(WN_KEY_VOL));
+    return (!isNaN(v) && v >= 0 && v <= 1) ? v : 0.6;
+  }
+  function wnAudio() {
+    if (!wnCtx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      wnCtx = new AC();
+      wnMaster = wnCtx.createGain();
+      wnMaster.gain.value = 0;
+      wnMaster.connect(wnCtx.destination);
+    }
+    if (wnCtx.state === 'suspended') { wnCtx.resume(); }
+    return wnCtx;
+  }
+  // 预生成 2 秒循环噪声缓冲（白 / 粉 / 棕），粉棕按峰值归一避免音量差异过大
+  function wnGetBufs() {
+    if (wnBufs) return wnBufs;
+    var sr = wnCtx.sampleRate, len = sr * 2;
+    function mk(fill) {
+      var buf = wnCtx.createBuffer(1, len, sr), d = buf.getChannelData(0), peak = 0.0001, i, v;
+      for (i = 0; i < len; i++) { v = fill(i, d); d[i] = v; if (v > peak) peak = v; if (-v > peak) peak = -v; }
+      if (fill._normalize) for (i = 0; i < len; i++) d[i] = d[i] / peak * 0.9;
+      return buf;
+    }
+    var white = mk(function () { return Math.random() * 2 - 1; });
+    var pinkFill = (function () {
+      var b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+      var f = function () {
+        var w = Math.random() * 2 - 1;
+        b0 = 0.99886 * b0 + w * 0.0555179;
+        b1 = 0.99683 * b1 + w * 0.0750759;
+        b2 = 0.95000 * b2 + w * 0.1538520;
+        b3 = 0.85000 * b3 + w * 0.3104856;
+        b4 = 0.70000 * b4 + w * 0.5329522;
+        b5 = -0.75 * b5 - w * 0.0168980;
+        var out = b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362;
+        b6 = w * 0.115926;
+        return out * 0.11;
+      };
+      f._normalize = true;
+      return f;
+    })();
+    var brownFill = (function () {
+      var last = 0;
+      var f = function () {
+        var w = Math.random() * 2 - 1;
+        last = (last + 0.02 * w) / 1.02;
+        return last * 3.5;
+      };
+      f._normalize = true;
+      return f;
+    })();
+    wnBufs = { white: white, pink: mk(pinkFill), brown: mk(brownFill) };
+    return wnBufs;
+  }
+  function wnLoop(buf) {
+    var s = wnCtx.createBufferSource();
+    s.buffer = buf; s.loop = true;
+    return s;
+  }
+  // LFO：oscFreq → 深度 → 目标参数（返回 osc/g 两个节点，拆图时一并断开）
+  function wnLfo(freq, depth, target) {
+    var osc = wnCtx.createOscillator(), g = wnCtx.createGain();
+    osc.frequency.value = freq; g.gain.value = depth;
+    osc.connect(g); g.connect(target);
+    osc.start();
+    return { osc: osc, g: g };
+  }
+  function wnBuild(id) {
+    var bufs = wnGetBufs(), nodes = [], out = wnCtx.createGain();
+    out.gain.value = 1; out.connect(wnMaster);
+    var src, filt, g;
+    if (id === 'white') {
+      src = wnLoop(bufs.white); src.connect(out); nodes.push(src);
+    } else if (id === 'pink') {
+      src = wnLoop(bufs.pink); src.connect(out); nodes.push(src);
+    } else if (id === 'brown') {
+      src = wnLoop(bufs.brown);
+      filt = wnCtx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 420;
+      src.connect(filt); filt.connect(out); nodes.push(src);
+    } else if (id === 'rain') {
+      src = wnLoop(bufs.white);
+      var hp = wnCtx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 480;
+      var bp = wnCtx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1700; bp.Q.value = 0.4;
+      g = wnCtx.createGain(); g.gain.value = 0.62;
+      src.connect(hp); hp.connect(bp); bp.connect(g); g.connect(out);
+      // 两层慢 LFO 模拟雨声起伏
+      var rainLfo1 = wnLfo(0.31, 0.22, g.gain), rainLfo2 = wnLfo(0.93, 0.10, g.gain);
+      nodes.push(rainLfo1.osc, rainLfo1.g, rainLfo2.osc, rainLfo2.g, src);
+    } else if (id === 'ocean') {
+      src = wnLoop(bufs.brown);
+      filt = wnCtx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 420;
+      g = wnCtx.createGain(); g.gain.value = 0.6;
+      src.connect(filt); filt.connect(g); g.connect(out);
+      // 约 11 秒一次潮起潮落：同时调制滤波与音量
+      var ocLfo1 = wnLfo(0.09, 300, filt.frequency), ocLfo2 = wnLfo(0.09, 0.32, g.gain);
+      nodes.push(ocLfo1.osc, ocLfo1.g, ocLfo2.osc, ocLfo2.g, src);
+    } else if (id === 'fire') {
+      src = wnLoop(bufs.pink);
+      filt = wnCtx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 620;
+      g = wnCtx.createGain(); g.gain.value = 0.85;
+      src.connect(filt); filt.connect(g); g.connect(out);
+      nodes.push(src);
+      // 随机噼啪声：短促带通噪声脉冲
+      var timer = setInterval(function () {
+        if (Math.random() > 0.55) return;
+        try {
+          var t = wnCtx.currentTime, pop = wnLoop(bufs.white);
+          pop.loop = false;
+          var pf = wnCtx.createBiquadFilter(); pf.type = 'bandpass';
+          pf.frequency.value = 900 + Math.random() * 2600; pf.Q.value = 1.4;
+          var pg = wnCtx.createGain();
+          pg.gain.setValueAtTime(0, t);
+          pg.gain.linearRampToValueAtTime(0.12 + Math.random() * 0.25, t + 0.006);
+          pg.gain.exponentialRampToValueAtTime(0.001, t + 0.04 + Math.random() * 0.10);
+          pop.connect(pf); pf.connect(pg); pg.connect(wnMaster);
+          pop.start(t); pop.stop(t + 0.2);
+        } catch (e) {}
+      }, 130);
+      nodes.push({ _timer: timer });
+    }
+    return { out: out, nodes: nodes };
+  }
+  function wnPlay(id) {
+    var ctx = wnAudio();
+    if (!ctx) { toast('当前环境不支持背景音播放'); return; }
+    wnTeardownBag();
+    wnBag = wnBuild(id);
+    wnBag.nodes.forEach(function (n) { if (n.start) { try { n.start(0); } catch (e) {} } });
+    wnActive = id;
+    try { localStorage.setItem(WN_KEY_SOUND, id); } catch (e) {}
+    // 淡入避免咔哒声
+    var t = ctx.currentTime;
+    wnMaster.gain.cancelScheduledValues(t);
+    wnMaster.gain.setValueAtTime(Math.max(wnMaster.gain.value, 0.0001), t);
+    wnMaster.gain.exponentialRampToValueAtTime(Math.max(wnVol(), 0.01), t + 0.8);
+    wnRender();
+  }
+  function wnTeardownBag() {
+    if (wnBag) {
+      wnBag.nodes.forEach(function (n) {
+        try { if (n._timer) clearInterval(n._timer); else if (n.stop) n.stop(); } catch (e) {}
+        try { n.disconnect && n.disconnect(); } catch (e) {}
+      });
+      try { wnBag.out.disconnect(); } catch (e) {}
+      wnBag = null;
+    }
+  }
+  function wnStop(silent) {
+    var ctx = wnCtx;
+    if (ctx && wnBag) {
+      var t = ctx.currentTime;
+      try {
+        wnMaster.gain.cancelScheduledValues(t);
+        wnMaster.gain.setValueAtTime(Math.max(wnMaster.gain.value, 0.0001), t);
+        wnMaster.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+      } catch (e) {}
+      var bag = wnBag;
+      setTimeout(function () {
+        // 淡出期间没有开始新音效才真正拆图
+        if (wnBag === bag) wnTeardownBag();
+      }, 480);
+    }
+    wnActive = null;
+    wnRender();
+  }
+  function wnSetVol(v) {
+    try { localStorage.setItem(WN_KEY_VOL, String(v)); } catch (e) {}
+    if (wnCtx && wnActive) {
+      wnMaster.gain.setTargetAtTime(v, wnCtx.currentTime, 0.05);
+    }
+  }
+  function isReadingPath() {
+    return /^\/read\/\d+/.test(location.pathname);
+  }
+  function wnBuildUI() {
+    if (wnUI) return;
+    var root = document.createElement('div');
+    root.id = 'qy-wn';
+    root.hidden = true;
+    root.innerHTML =
+      '<button type="button" class="qy-wn-fab" data-qy-wn-fab>🎧 白噪音</button>' +
+      '<div class="qy-wn-panel" data-qy-wn-panel hidden>' +
+        '<div class="qy-wn-row"><span class="qy-wn-title">阅读白噪音</span>' +
+        '<button type="button" class="qy-wn-stop" data-qy-wn-stop title="停止">■</button>' +
+        '<button type="button" class="qy-wn-x" data-qy-wn-x title="收起">×</button></div>' +
+        '<div class="qy-wn-grid"></div>' +
+        '<div class="qy-wn-vol"><span>音量</span><input type="range" min="0" max="1" step="0.05" data-qy-wn-vol>' +
+        '<span data-qy-wn-volv></span></div>' +
+      '</div>';
+    document.body.appendChild(root);
+    var st = document.createElement('style');
+    st.id = 'qy-wn-style';
+    st.textContent =
+      '#qy-wn{position:fixed;left:12px;bottom:112px;z-index:99990;font-family:inherit;-webkit-tap-highlight-color:transparent}' +
+      '#qy-wn .qy-wn-fab{border:none;border-radius:999px;padding:8px 14px;font-size:13px;line-height:1;color:#fff;' +
+      'background:rgba(0,0,0,.55);backdrop-filter:blur(6px);box-shadow:0 2px 10px rgba(0,0,0,.28);cursor:pointer}' +
+      '#qy-wn .qy-wn-fab.on{background:rgba(51,112,255,.95)}' +
+      '#qy-wn .qy-wn-panel{margin-top:8px;width:224px;box-sizing:border-box;background:rgba(28,28,30,.94);color:#f2f2f2;' +
+      'border-radius:14px;padding:12px;box-shadow:0 8px 28px rgba(0,0,0,.38);backdrop-filter:blur(8px)}' +
+      '#qy-wn .qy-wn-row{display:flex;align-items:center;margin-bottom:8px}' +
+      '#qy-wn .qy-wn-title{flex:1;font-size:12px;opacity:.72}' +
+      '#qy-wn .qy-wn-stop,#qy-wn .qy-wn-x{border:none;background:none;color:#ccc;font-size:14px;cursor:pointer;padding:0 6px;line-height:1}' +
+      '#qy-wn .qy-wn-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px}' +
+      '#qy-wn .qy-wn-grid button{border:1px solid rgba(255,255,255,.18);background:transparent;color:#eee;' +
+      'border-radius:8px;padding:7px 0;font-size:12px;cursor:pointer}' +
+      '#qy-wn .qy-wn-grid button.on{background:#3370ff;border-color:#3370ff;color:#fff}' +
+      '#qy-wn .qy-wn-vol{display:flex;align-items:center;gap:8px;font-size:11px;opacity:.85}' +
+      '#qy-wn .qy-wn-vol input{flex:1;min-width:0}' +
+      '#qy-wn .qy-wn-vol span:last-child{width:30px;text-align:right}';
+    document.documentElement.appendChild(st);
+
+    var grid = root.querySelector('[data-qy-wn-grid]');
+    WN_SOUNDS.forEach(function (s) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.setAttribute('data-qy-wn-sound', s.id); b.textContent = s.name;
+      b.addEventListener('click', function () {
+        if (wnActive === s.id) wnStop(); else wnPlay(s.id);
+      });
+      grid.appendChild(b);
+    });
+    root.querySelector('[data-qy-wn-fab]').addEventListener('click', function () {
+      wnPanelOpen = !wnPanelOpen;
+      wnRender();
+    });
+    root.querySelector('[data-qy-wn-x]').addEventListener('click', function () {
+      wnPanelOpen = false; wnRender();
+    });
+    root.querySelector('[data-qy-wn-stop]').addEventListener('click', function () { wnStop(); });
+    var slider = root.querySelector('[data-qy-wn-vol]');
+    slider.value = String(wnVol());
+    root.querySelector('[data-qy-wn-volv]').textContent = Math.round(wnVol() * 100) + '';
+    slider.addEventListener('input', function () {
+      var v = parseFloat(slider.value) || 0;
+      wnSetVol(v);
+      root.querySelector('[data-qy-wn-volv]').textContent = Math.round(v * 100) + '';
+    });
+    wnUI = root;
+  }
+  function wnRender() {
+    if (!wnUI) return;
+    wnUI.hidden = !wnLastReading;
+    wnUI.querySelector('[data-qy-wn-fab]').classList.toggle('on', !!wnActive);
+    wnUI.querySelector('[data-qy-wn-fab]').textContent = wnActive
+      ? '🎵 ' + (WN_SOUNDS.filter(function (s) { return s.id === wnActive; })[0] || {}).name
+      : '🎧 白噪音';
+    wnUI.querySelector('[data-qy-wn-panel]').hidden = !wnPanelOpen;
+    Array.prototype.forEach.call(wnUI.querySelectorAll('[data-qy-wn-sound]'), function (b) {
+      b.classList.toggle('on', b.getAttribute('data-qy-wn-sound') === wnActive);
+    });
+  }
+  // 进入/离开阅读页的总同步：离开时自动停止并隐藏入口
+  function wnSyncView() {
+    var reading = isReadingPath();
+    if (reading === wnLastReading) return;
+    wnLastReading = reading;
+    if (reading) {
+      wnBuildUI();
+      wnRender();
+    } else {
+      if (wnActive) { wnStop(true); }
+      wnPanelOpen = false;
+      wnRender();
+    }
+  }
+  (function initWnRouter() {
+    function emit() { try { wnSyncView(); } catch (e) {} }
+    var _push = history.pushState, _replace = history.replaceState;
+    history.pushState = function () { var r = _push.apply(this, arguments); emit(); return r; };
+    history.replaceState = function () { var r = _replace.apply(this, arguments); emit(); return r; };
+    window.addEventListener('popstate', emit);
+    // 兜底：部分跳转可能不经 history API，每秒校正一次
+    setInterval(emit, 1000);
+    emit();
+  })();
 
   /* ===================== 5. AI / 成就中心真删（v0.1.2） ===================== */
   // 精确匹配的独立入口文本（移除了 '语音配置'——TTS 恢复后继续保留；保留了 AI 相关）
