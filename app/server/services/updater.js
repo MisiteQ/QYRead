@@ -47,7 +47,7 @@ function detectArch() {
     return (a === 'arm64' || a.indexOf('arm') === 0) ? 'arm' : 'x86';
 }
 
-// ---- manifest 路径：多重验证 appname 必须匹配 ----
+// ---- manifest 路径：只返回 appname 验证通过的本应用 manifest，绝不返回其他应用文件 ----
 function manifestPath() {
     var candidates = [
         // fnOS 应用基础目录 TRIM_PKGHOME = /var/apps/{appname}（manifest / cmd / ICON 所在）
@@ -77,29 +77,46 @@ function manifestPath() {
             } catch (e) {}
         }
     }
-    log('WARNING: no valid manifest found for appname=' + APPNAME +
-        ' PKGVAR=' + PKGVAR + ' APPDEST=' + APPDEST + ' APPBASE=' + APPBASE +
+    log('WARNING: no appname-verified manifest found; PKGVAR=' + PKGVAR +
+        ' APPDEST=' + APPDEST + ' APPBASE=' + APPBASE +
         ' TRIM_PKGHOME=' + (TRIM_PKGHOME || '(unset)'));
-    // 兜底：返回第一个存在的
-    for (var j = 0; j < candidates.length; j++) {
-        if (fs.existsSync(candidates[j])) return candidates[j];
-    }
-    return candidates[0];
+    // 不做兜底：宁返回 null，也绝不能读到其他应用的 manifest
+    return null;
 }
 
-// 严格锚定行首：只匹配首字段 version，不匹配 os_min_version / changelog 内嵌的版本号
+// 当前版本：优先读与本模块同目录树、随 fpk 一起安装的 package.json。
+// updater.js 位于 app/server/services/，package.json 位于 app/server/package.json，
+// 二者在同一安装目录内、同一次 fpk 解包复制，路径 100% 确定，与 fnOS 的 TRIM_* 目录结构无关。
 function getCurrentVersion() {
+    // 1) package.json（最可靠：自身文件、标准 JSON、build.ps1 自动同步版本号）
     try {
-        var txt = fs.readFileSync(manifestPath(), 'utf8');
-        var m = /^version\s*=\s*([0-9][0-9A-Za-z.\-]*)/m.exec(txt);
-        if (m) {
-            log('current version=' + m[1]);
-            return m[1];
+        var pkgFile = path.join(__dirname, '..', 'package.json');
+        if (fs.existsSync(pkgFile)) {
+            var pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+            if (pkg && /^[0-9]+\.[0-9]+\.[0-9]+/.test(String(pkg.version || ''))) {
+                log('current version=' + pkg.version + ' (from package.json)');
+                return String(pkg.version);
+            }
         }
     } catch (e) {
-        log('getCurrentVersion error: ' + (e.message || e));
+        log('read package.json version error: ' + (e.message || e));
     }
-    log('WARNING: version not found in manifest, defaulting to 0.0.0');
+    // 2) 本应用 manifest（appname 已验证）
+    try {
+        var mp = manifestPath();
+        if (mp) {
+            var txt = fs.readFileSync(mp, 'utf8');
+            // 严格锚定行首：只匹配首字段 version，不匹配 os_min_version / changelog 内嵌版本号
+            var m = /^version\s*=\s*([0-9][0-9A-Za-z.\-]*)/m.exec(txt);
+            if (m) {
+                log('current version=' + m[1] + ' (from manifest)');
+                return m[1];
+            }
+        }
+    } catch (e) {
+        log('read manifest version error: ' + (e.message || e));
+    }
+    log('WARNING: version not found, defaulting to 0.0.0');
     return '0.0.0';
 }
 

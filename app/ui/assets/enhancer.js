@@ -1,4 +1,4 @@
-/*! 惬意阅读 壳层增强（v0.1.14）
+/*! 惬意阅读 壳层增强（v0.1.16）
  *  前端 bundle 为编译产物，所有增强均通过 DOM 观察外挂实现，不侵入 React 状态。
  *  功能：① 内容宽度滑块 ② 详情页读后感按钮 ③ 书架视图切换（大/中/小/列表，列表带书籍信息）
  *       ④ 阅读器外壳主题跟随 ⑤ 管理中心 AI/成就 tab 容器移除
@@ -667,11 +667,17 @@
           '<div>当前版本：<b data-qy-upd-cur>—</b></div>' +
           '<div>最新版本：<b data-qy-upd-latest>—</b></div>' +
           '<div data-qy-upd-msg style="opacity:.7;font-size:12px"></div>' +
+          '<div style="font-size:12px;margin-top:2px">项目地址：' +
+            '<a href="https://github.com/MisiteQ/QYRead" target="_blank" rel="noopener" ' +
+            'style="color:#3370ff;word-break:break-all">github.com/MisiteQ/QYRead</a></div>' +
         '</div>' +
         '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
-          '<button type="button" data-qy-upd-check style="...">检查更新</button>' +
-          '<button type="button" data-qy-upd-dl style="...">下载到 NAS</button>' +
-          '<button type="button" data-qy-upd-install style="...">立即更新</button>' +
+          '<button type="button" data-qy-upd-check>检查更新</button>' +
+          '<button type="button" data-qy-upd-dl>下载到 NAS</button>' +
+          '<button type="button" data-qy-upd-install>立即更新</button>' +
+          '<a href="https://github.com/MisiteQ/QYRead/releases" target="_blank" rel="noopener" ' +
+            'data-qy-upd-gh style="text-decoration:none;border:1px solid rgba(51,112,255,.4);' +
+            'border-radius:8px;padding:6px 12px;font-size:12px;color:#3370ff;background:#fff;">GitHub 下载</a>' +
         '</div>' +
         '<label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;opacity:.8">' +
           '<input type="checkbox" data-qy-upd-auto> 自动检查并安装更新</label>';
@@ -679,14 +685,29 @@
       _updBox = card;
       // 统一按钮样式
       card.querySelectorAll('button').forEach(function (b) {
+        b.dataset.enabled = '1';
         b.style.cssText = 'border:1px solid rgba(51,112,255,.4);background:#3370ff;color:#fff;' +
           'border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer';
       });
-      card.querySelector('[data-qy-upd-dl]').disabled = true;
-      card.querySelector('[data-qy-upd-install]').disabled = true;
+      // 按钮启用/禁用统一样式（禁用时置灰 + 禁止光标 + 提示，避免“点击没反应”）
+      card._setBtn = function (btn, enabled, title) {
+        btn.disabled = !enabled;
+        btn.title = title || '';
+        if (enabled) {
+          btn.style.cssText = 'border:1px solid rgba(51,112,255,.4);background:#3370ff;color:#fff;' +
+            'border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer';
+        } else {
+          btn.style.cssText = 'border:1px solid #ccc;background:#e5e7eb;color:#9ca3af;' +
+            'border-radius:8px;padding:6px 12px;font-size:12px;cursor:not-allowed';
+        }
+      };
+      var dlBtn = card.querySelector('[data-qy-upd-dl]');
+      var inBtn = card.querySelector('[data-qy-upd-install]');
+      card._setBtn(dlBtn, false, '请先点击「检查更新」发现新版本');
+      card._setBtn(inBtn, false, '请先下载更新包到 NAS');
       card.querySelector('[data-qy-upd-check]').addEventListener('click', updCheck);
-      card.querySelector('[data-qy-upd-dl]').addEventListener('click', updDownload);
-      card.querySelector('[data-qy-upd-install]').addEventListener('click', updInstall);
+      dlBtn.addEventListener('click', updDownload);
+      inBtn.addEventListener('click', updInstall);
       card.querySelector('[data-qy-upd-auto]').addEventListener('change', function (e) {
         updApi('/api/extra/update/config', { method: 'POST', body: JSON.stringify({ autoupdate: e.target.checked }) })
           .then(function () {}).catch(function (err) { toast('保存配置失败：' + err.message); });
@@ -702,21 +723,28 @@
       _updBox.querySelector('[data-qy-upd-cur]').textContent = s.current_version || '—';
       _updBox.querySelector('[data-qy-upd-latest]').textContent = s.latest_version || '—';
       var msg = _updBox.querySelector('[data-qy-upd-msg]');
+      var dlBtn = _updBox.querySelector('[data-qy-upd-dl]');
+      var inBtn = _updBox.querySelector('[data-qy-upd-install]');
       if (s.has_update) {
         msg.textContent = '发现新版本，可下载安装';
-        _updBox.querySelector('[data-qy-upd-dl]').disabled = false;
+        _updBox._setBtn(dlBtn, true, '下载 ' + (s.latest_version || '新版本') + ' 安装包到 NAS');
       } else {
         msg.textContent = s.latest_version ? '已是最新版本' : '点击检查更新';
+        _updBox._setBtn(dlBtn, false, s.latest_version ? '当前已是最新版本，无需下载' : '请先点击「检查更新」');
+      }
+      if (s.error) {
+        msg.textContent = '检查更新出错：' + s.error;
       }
       if (s.downloaded) {
         msg.textContent = '已下载，可立即更新';
-        _updBox.querySelector('[data-qy-upd-install]').disabled = false;
+        _updBox._setBtn(inBtn, true, '安装已下载的更新并重启服务');
       } else {
-        _updBox.querySelector('[data-qy-upd-install]').disabled = true;
+        _updBox._setBtn(inBtn, false, '请先下载更新包到 NAS');
       }
       _updBox.querySelector('[data-qy-upd-auto]').checked = !!s.autoupdate;
     }).catch(function () {
-      _updBox.querySelector('[data-qy-upd-msg]').textContent = '更新服务未就绪';
+      var m = _updBox.querySelector('[data-qy-upd-msg]');
+      if (m) m.textContent = '更新服务未就绪（需管理员登录）';
     });
   }
   function updCheck() {
