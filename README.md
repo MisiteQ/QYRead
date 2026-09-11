@@ -1,7 +1,7 @@
 # 惬意阅读 QYRead
 
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.11-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.12-blue">
   <img alt="fnOS" src="https://img.shields.io/badge/fnOS-x86%20%7C%20arm64-success">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-orange">
 </p>
@@ -10,7 +10,7 @@
 
 > **本项目基于「落地长安 轻阅读」改造**，小说搜索下载模块整合了 [zsyo/go-novel](https://github.com/zsyo/go-novel) 的书源与爬虫逻辑，在此感谢两位作者的开源分享。
 
-- 当前版本：**v0.1.11**
+- 当前版本：**v0.1.12**
 - 作者：**Misite齊**
 - 适用平台：fnOS **x86 + arm64**（依赖应用中心的 Node.js v22，最低系统版本 1.1.8）
 - 默认端口：**8344**（安装向导可改）
@@ -37,7 +37,7 @@ https://github.com/MisiteQ/FnDepot
 
 ### 方式二：手动安装 FPK
 
-1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.11-x86.fpk`（x86 机型）或 `qyread-0.1.11-arm.fpk`（arm64 机型）
+1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.12-x86.fpk`（x86 机型）或 `qyread-0.1.12-arm.fpk`（arm64 机型）
 2. 飞牛 OS → **应用中心** → 左下角 **手动安装** → 选择 fpk 文件
 3. 按安装向导完成配置：
    - **端口与管理员**：应用端口（默认 **8344**）、管理员用户名与密码
@@ -61,7 +61,7 @@ https://github.com/MisiteQ/FnDepot
 ```powershell
 # 打包前先在 Linux 环境（或 WSL / fnOS）安装服务端依赖（sqlite3 为 Linux 原生模块）：
 #   cd app/server && npm install --omit=dev
-.\build.ps1                 # 自动 patch +1（0.1.11 → 0.1.12），同步 manifest / package.json / 前端 ?v=
+.\build.ps1                 # 自动 patch +1（0.1.12 → 0.1.13），同步 manifest / package.json / 前端 ?v=
 .\build.ps1 -Version 0.2.0  # 指定版本号
 .\build.ps1 -NoBump         # 不修改版本号，按 manifest 当前版本打包
 # 产物：qyread-<版本>-x86.fpk 与 qyread-<版本>-arm.fpk
@@ -117,6 +117,7 @@ build.ps1               Windows 双架构一键打包脚本
 
 | 版本 | 内容 |
 |---|---|
+| v0.1.12 | 紧急修复 v0.1.11 白噪音入口实际未显示（初始化变量缺失 + 音效容器选择器不匹配，功能从未挂载）；详细列表作者 / 章节 / 进度改优先采用书架接口自带字段并与进度接口合并，兼容性增强 |
 | v0.1.11 | 修复安装 / 升级后偶发服务未自启动（启动脚本重写：脱离安装事务会话、端口探活失败自动重试、清理残留占用）；修复书架详细列表作者 / 章节 / 进度偶发失效（冷启动竞态，改为等待书库数据就绪 + 空结果重试 + 防并发覆盖）；新增阅读器白噪音背景音（6 种音效，仅阅读页显示，离开自动停止） |
 | v0.1.10 | 彻底修复「我的」页点击顶部用户卡片仍跳转已下线的成就页并报 s.map is not a function（改用文本节点遍历定位 + document 捕获阶段常驻拦截，React 重渲染也能拦住），右侧箭头同步隐藏 |
 | v0.1.9 | 修复书架「详细列表」视图书籍信息不显示（文件名带 .epub/.txt 扩展名与页面显示名匹配失败）；列表视图不再显示封面缩略图；移除调试日志 |

@@ -1,4 +1,4 @@
-/*! 惬意阅读 壳层增强（v0.1.11）
+/*! 惬意阅读 壳层增强（v0.1.12）
  *  前端 bundle 为编译产物，所有增强均通过 DOM 观察外挂实现，不侵入 React 状态。
  *  功能：① 内容宽度滑块 ② 详情页读后感按钮 ③ 书架视图切换（大/中/小/列表，列表带书籍信息）
  *       ④ 阅读器外壳主题跟随 ⑤ 管理中心 AI/成就 tab 容器移除
@@ -646,7 +646,7 @@
       if (arr && arr.length) { finishMeta(arr, reqId); return; }
       if (++waits <= 6) { setTimeout(waitCache, 400); return; }
       // ② 缓存始终缺失，按 bundle 的路径自行兜底请求一次
-      var token = localStorage.getItem('lr_token') || '';
+      var token = localStorage.getItem('lr_token') || localStorage.getItem('token') || '';
       fetch('/api/books?in_bookshelf=1&limit=1000', {
         credentials: 'include',
         headers: token ? { Authorization: 'Bearer ' + token } : {}
@@ -662,7 +662,7 @@
     waitCache();
   }
   function finishMeta(arr, reqId) {
-    var token = localStorage.getItem('lr_token') || '';
+    var token = localStorage.getItem('lr_token') || localStorage.getItem('token') || '';
     fetch('/api/stats/reading-progress?limit=500', {
       credentials: 'include',
       headers: token ? { Authorization: 'Bearer ' + token } : {}
@@ -682,15 +682,19 @@
           if (!b) return;
           var key = String(b.id != null ? b.id : (b.book_id != null ? b.book_id : b.title));
           if (!key) return;
+          // books 列表接口本身已 JOIN progress（书架卡片角标即用这些字段），直接采用；
+          // reading-progress 接口返回的记录作为补充/覆盖
           var merged = {
             id: key,
             title: b.title,
             author: b.author || null,
             cover: b.cover || null,
             format: b.format || null,
-            progress_percent: 0,
-            chapter_title: null,
-            chapter_index: 0
+            progress_percent: Number(b.progress_percent != null ? b.progress_percent
+              : (b.percent != null ? b.percent : b.progress)) || 0,
+            chapter_title: b.chapter_title || b.chapter || null,
+            chapter_index: b.chapter_index != null ? b.chapter_index : (b.chapterIndex || 0),
+            last_read: b.last_read || null
           };
           var p = progMap.get(key);
           if (!p && b.title) {
@@ -702,11 +706,15 @@
             }
           }
           if (p) {
-            merged.progress_percent = Number(p.progress_percent != null ? p.progress_percent
+            var pp = Number(p.progress_percent != null ? p.progress_percent
               : (p.percent != null ? p.percent : p.progress)) || 0;
-            merged.chapter_title = p.chapter_title || p.chapter || null;
-            merged.last_read = p.last_read || null;
-            merged.chapter_index = p.chapter_index != null ? p.chapter_index : (p.chapterIndex || 0);
+            if (pp > 0 || !merged.progress_percent) merged.progress_percent = pp;
+            if (p.chapter_title || p.chapter) merged.chapter_title = p.chapter_title || p.chapter || null;
+            if (p.chapter_index != null || p.chapterIndex != null) {
+              merged.chapter_index = p.chapter_index != null ? p.chapter_index : (p.chapterIndex || 0);
+            }
+            merged.last_read = p.last_read || merged.last_read;
+            if (!merged.author && p.author) merged.author = p.author;
           }
           map.set(key, merged);
           if (b.title) {
@@ -816,7 +824,7 @@
     { id: 'fire',  name: '篝火' }
   ];
   var wnCtx = null, wnMaster = null, wnBufs = null, wnBag = null, wnActive = null;
-  var wnPanelOpen = false, wnLastReading = false;
+  var wnPanelOpen = false, wnLastReading = false, wnUI = null;
 
   function wnVol() {
     var v = parseFloat(localStorage.getItem(WN_KEY_VOL));
@@ -1006,11 +1014,10 @@
         '<div class="qy-wn-row"><span class="qy-wn-title">阅读白噪音</span>' +
         '<button type="button" class="qy-wn-stop" data-qy-wn-stop title="停止">■</button>' +
         '<button type="button" class="qy-wn-x" data-qy-wn-x title="收起">×</button></div>' +
-        '<div class="qy-wn-grid"></div>' +
+        '<div class="qy-wn-grid" data-qy-wn-grid></div>' +
         '<div class="qy-wn-vol"><span>音量</span><input type="range" min="0" max="1" step="0.05" data-qy-wn-vol>' +
         '<span data-qy-wn-volv></span></div>' +
       '</div>';
-    document.body.appendChild(root);
     var st = document.createElement('style');
     st.id = 'qy-wn-style';
     st.textContent =
@@ -1030,7 +1037,6 @@
       '#qy-wn .qy-wn-vol{display:flex;align-items:center;gap:8px;font-size:11px;opacity:.85}' +
       '#qy-wn .qy-wn-vol input{flex:1;min-width:0}' +
       '#qy-wn .qy-wn-vol span:last-child{width:30px;text-align:right}';
-    document.documentElement.appendChild(st);
 
     var grid = root.querySelector('[data-qy-wn-grid]');
     WN_SOUNDS.forEach(function (s) {
@@ -1057,6 +1063,9 @@
       wnSetVol(v);
       root.querySelector('[data-qy-wn-volv]').textContent = Math.round(v * 100) + '';
     });
+    // 全部就绪后再上屏，避免中途异常残留半成品 DOM
+    document.documentElement.appendChild(st);
+    document.body.appendChild(root);
     wnUI = root;
   }
   function wnRender() {
