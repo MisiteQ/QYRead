@@ -63,9 +63,10 @@ if ($doBump) {
 
     # 3.1 manifest (keep UTF-8 no BOM)
     $manifest = [System.IO.File]::ReadAllText($manifestPath, $Utf8NoBom)
+    # 注意：version= 两边不能有空格——server.js 的版本正则是 /^version=(.+)$/m
     $manifest = [System.Text.RegularExpressions.Regex]::Replace(
         $manifest, '(?m)^version\s*=\s*[0-9]+\.[0-9]+\.[0-9]+',
-        "version               = $newVersion")
+        "version=$newVersion")
     [System.IO.File]::WriteAllText($manifestPath, $manifest, $Utf8NoBom)
 
     # 3.2 server package.json

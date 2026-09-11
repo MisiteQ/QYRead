@@ -161,6 +161,33 @@
     };
   } catch (e) {}
 
+  // XMLHttpRequest 拦截（覆盖 axios / 原生 XHR 场景）
+  try {
+    var _origOpen = XMLHttpRequest.prototype.open;
+    var _origSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function (method, url) {
+      this.__qyUrl = typeof url === 'string' ? url : '';
+      return _origOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function () {
+      var self = this;
+      if (self.__qyUrl && /\/api\/public\/version(?:\?|$)/.test(self.__qyUrl) && QY_VER) {
+        setTimeout(function () {
+          try {
+            Object.defineProperty(self, 'readyState', { value: 4, configurable: true });
+            Object.defineProperty(self, 'status', { value: 200, configurable: true });
+            Object.defineProperty(self, 'responseText', { value: JSON.stringify({ version: QY_VER }), configurable: true });
+            Object.defineProperty(self, 'response', { value: JSON.stringify({ version: QY_VER }), configurable: true });
+            if (typeof self.onload === 'function') self.onload.call(self);
+            if (typeof self.onreadystatechange === 'function') self.onreadystatechange.call(self);
+          } catch (e) {}
+        }, 0);
+        return;
+      }
+      return _origSend.apply(this, arguments);
+    };
+  } catch (e) {}
+
   function bookFresh() {
     var b = window.__qyBook;
     return b && (Date.now() - b.at < 6000) ? b : null;
