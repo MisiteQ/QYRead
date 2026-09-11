@@ -65,7 +65,7 @@ router.post('/install', async (req, res) => {
         if (!fpkPath || !fs.existsSync(fpkPath)) {
             return res.status(400).json({ error: '请先下载安装包' });
         }
-        const r = await updater.installFpk(fpkPath);
+        const r = await updater.installPackage(fpkPath);
         if (r.success) {
             // 先回响应，再重启
             res.json({ success: true, message: r.message });
@@ -102,6 +102,13 @@ router.post('/config', (req, res) => {
         };
         updater.saveConfig(cfg);
         res.json({ success: true, config: cfg });
+        // 从「关」切到「开」：立即在后台执行一次 检查→下载→安装→重启，
+        // 不必让用户干等下一个 6 小时间隔（内部有并发保护与同版本包复用）。
+        if (cfg.autoupdate && !old.autoupdate) {
+            setTimeout(() => {
+                try { updater.runAutoUpdate(); } catch (e) {}
+            }, 1000);
+        }
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

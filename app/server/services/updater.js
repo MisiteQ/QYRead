@@ -36,6 +36,9 @@ let _status = {
     downloading: false, downloaded_file: '', download_dir: '', error: ''
 };
 let _autoTimer = null;
+let _autoRunning = false;     // 一键/自动更新任务进行中
+let _autoPhase = '';          // checking | downloading | installing
+let _installing = false;      // 安装并发锁（手动 + 自动互斥）
 
 // ---- 工具 ----
 function log(msg) {
@@ -444,16 +447,43 @@ async function installFpk(fpkPath) {
     return { success: true, message: '新版本已安装，服务正在重启…' };
 }
 
+// ---- 安装（带并发锁：手动一键更新与后台自动更新互斥）----
+async function installPackage(fpkPath) {
+    if (_installing) {
+        return { success: false, error: '另一个安装任务正在进行，请稍候' };
+    }
+    _installing = true;
+    try {
+        return await installFpk(fpkPath);
+    } finally {
+        _installing = false;
+    }
+}
+
 // ---- 重启 ----
+function resolveCmdMain() {
+    var cands = [
+        process.env.TRIM_PKGHOME ? path.join(process.env.TRIM_PKGHOME, 'cmd', 'main') : null,
+        path.join(APPBASE, 'cmd', 'main'),
+        path.join(PKGVAR, '..', APPNAME, 'cmd', 'main')
+    ].filter(Boolean);
+    for (var i = 0; i < cands.length; i++) {
+        try { if (fs.existsSync(cands[i])) return cands[i]; } catch (e) {}
+    }
+    return cands[0];
+}
+
 function restart() {
-    var cmdMain = path.join(APPBASE, 'cmd', 'main');
+    var cmdMain = resolveCmdMain();
     try {
         fs.writeFileSync(path.join(PKGVAR, 'restart-trigger'), String(Date.now()));
     } catch (e) {}
-    log('scheduling restart via ' + cmdMain);
+    log('scheduling restart via: bash "' + cmdMain + '" restart');
     try {
-        var child = spawn('bash', ['-c', 'sleep 1.5; "' + cmdMain + '" restart'],
-            { detached: true, stdio: 'ignore' });
+        // 显式用 bash 调用 cmd/main，不依赖其可执行位；detached + 继承环境，
+        // 父 node 退出后该 shell 仍会完成 stop→start 全流程。
+        var child = spawn('bash', ['-c', 'sleep 1.5; bash "' + cmdMain + '" restart'],
+            { detached: true, stdio: 'ignore', env: process.env });
         child.unref();
     } catch (e) {
         log('spawn restart failed: ' + (e.message || e));
@@ -464,33 +494,86 @@ function restart() {
     }, 1200);
 }
 
-// ---- 自动检查 ----
+// ---- 一键 / 自动更新：检查 → 下载（已存在同版本包则复用）→ 安装 → 重启 ----
+async function runAutoUpdate() {
+    if (_autoRunning) {
+        log('auto-update already running, skip this trigger');
+        return;
+    }
+    _autoRunning = true;
+    try {
+        _autoPhase = 'checking';
+        log('auto-update: checking latest release...');
+        var info = await check(true);
+        if (!info.ok) {
+            log('auto-update abort: check failed: ' + (info.error || 'unknown'));
+            return;
+        }
+        if (!info.has_update) {
+            log('auto-update: already latest ' + info.latest + ', nothing to do');
+            return;
+        }
+        if (!info.asset) {
+            log('auto-update abort: no fpk asset for arch ' + info.arch);
+            return;
+        }
+        // 已下载过同一版本的安装包则直接复用，避免重复下载
+        var fpk = downloadedPath();
+        if (!fpk || fpk.indexOf(info.latest) === -1) {
+            _autoPhase = 'downloading';
+            log('auto-update: downloading ' + info.asset.name);
+            var dr = await downloadToNas(info.asset);
+            if (!dr.success) {
+                log('auto-update abort: download failed: ' + dr.error);
+                return;
+            }
+            fpk = dr.path;
+        } else {
+            log('auto-update: reuse existing package ' + fpk);
+        }
+        _autoPhase = 'installing';
+        log('auto-update: installing ' + fpk);
+        var ir = await installPackage(fpk);
+        if (!ir.success) {
+            _autoRunning = false;
+            _autoPhase = '';
+            log('auto-update abort: install failed: ' + ir.error);
+            return;
+        }
+        log('auto-update: installed ' + info.latest + ', restarting service');
+        restart();
+    } catch (e) {
+        _autoRunning = false;
+        _autoPhase = '';
+        log('auto-update error: ' + (e.message || e));
+    } finally {
+        // 走到 installing 说明即将 restart 退出进程，保留 installing 状态供前端展示；
+        // 其余中止路径在此复位。
+        if (_autoPhase !== 'installing') {
+            _autoRunning = false;
+            _autoPhase = '';
+        }
+    }
+}
+
+// ---- 自动检查（启动 60 秒后先跑一次，之后每 6 小时一次）----
 function startAutoCheck() {
     if (_autoTimer) return;
     var cfg = loadConfig();
     if (cfg.autocheck === false) { log('autocheck disabled by config'); return; }
-    _autoTimer = setInterval(function () {
+    function tick() {
         var c = loadConfig();
         if (c.autocheck === false) return;
-        check(true).then(function (info) {
-            if (!info.has_update || !info.asset) return;
-            log('auto-check found update ' + info.latest);
-            if (c.autoupdate) {
-                downloadToNas(info.asset).then(function (r) {
-                    if (r.success && r.path) {
-                        log('auto-downloaded to ' + r.path);
-                        installFpk(r.path).then(function (ir) {
-                            if (ir.success) restart();
-                            else log('auto-install failed: ' + ir.error);
-                        });
-                    } else {
-                        log('auto-download failed: ' + r.error);
-                    }
-                });
-            }
-        }).catch(function (e) { log('auto-check error: ' + (e.message || e)); });
-    }, UPDATE_CHECK_INTERVAL);
-    log('auto-check started, interval=' + (UPDATE_CHECK_INTERVAL / 3600000) + 'h');
+        if (c.autoupdate) {
+            // 自动更新：检查 → 下载 → 安装 → 重启（内部有并发保护）
+            runAutoUpdate().catch(function (e) { log('auto tick error: ' + (e.message || e)); });
+        } else {
+            check(true).catch(function (e) { log('auto check error: ' + (e.message || e)); });
+        }
+    }
+    setTimeout(tick, 60 * 1000);
+    _autoTimer = setInterval(tick, UPDATE_CHECK_INTERVAL);
+    log('auto-check started, first run in 60s, interval=' + (UPDATE_CHECK_INTERVAL / 3600000) + 'h');
 }
 
 function getStatus() {
@@ -503,6 +586,9 @@ function getStatus() {
         downloaded: !!dp,
         downloaded_file: dp,
         downloading: _status.downloading,
+        installing: _installing,
+        auto_running: _autoRunning,
+        auto_phase: _autoPhase,
         last_check: _status.last_check,
         error: _status.error,
         autoupdate: loadConfig().autoupdate || false,
@@ -513,7 +599,7 @@ function getStatus() {
 log('updater loaded, APPNAME=' + APPNAME + ' PKGVAR=' + PKGVAR + ' APPDEST=' + APPDEST + ' APPBASE=' + APPBASE + ' TRIM_PKGHOME=' + (TRIM_PKGHOME || '(unset)'));
 
 module.exports = {
-    detectArch, getCurrentVersion, check, downloadToNas, installFpk,
-    restart, startAutoCheck, getStatus, loadConfig, saveConfig, downloadedPath,
-    UPDATE_DIR
+    detectArch, getCurrentVersion, check, downloadToNas, installFpk, installPackage,
+    runAutoUpdate, restart, startAutoCheck, getStatus, loadConfig, saveConfig,
+    downloadedPath, UPDATE_DIR
 };
