@@ -17,7 +17,10 @@ const GH_MIRRORS = ['', 'https://gh-proxy.com/', 'https://ghfast.top/', 'https:/
 const APPNAME = process.env.TRIM_APPNAME || 'qyread';
 const TRIM_PKGVAR = process.env.TRIM_PKGVAR || path.join(__dirname, '..', '..', '..');
 const TRIM_APPDEST = process.env.TRIM_APPDEST || path.join(__dirname, '..', '..');
-const TRIM_APPBASE = path.join(TRIM_PKGVAR, '..', APPNAME);  // /var/apps/{appname}
+// fnOS 的 TRIM_PKGHOME 指向 /var/apps/{appname}/（manifest / cmd / ICON 所在）；
+// 没有 TRIM_PKGHOME 时回退用 PKGVAR 的上级拼 APPNAME（兼容开发环境）
+const TRIM_PKGHOME = process.env.TRIM_PKGHOME || '';
+const TRIM_APPBASE = TRIM_PKGHOME || path.join(TRIM_PKGVAR, '..', APPNAME);
 const PKGVAR = TRIM_PKGVAR;
 const APPDEST = TRIM_APPDEST;
 const APPBASE = TRIM_APPBASE;
@@ -47,15 +50,17 @@ function detectArch() {
 // ---- manifest 路径：多重验证 appname 必须匹配 ----
 function manifestPath() {
     var candidates = [
-        // fnOS 应用基础目录（TRIM_PKGVAR 自身通常就是 /var/apps/{appname}）
-        path.join(PKGVAR, 'manifest'),
-        // 显式用 APPNAME 拼接
+        // fnOS 应用基础目录 TRIM_PKGHOME = /var/apps/{appname}（manifest / cmd / ICON 所在）
+        TRIM_PKGHOME ? path.join(TRIM_PKGHOME, 'manifest') : null,
+        // fnOS APPBASE（同上，无 TRIM_PKGHOME 时由 PKGVAR 上级拼 APPNAME 得到）
         path.join(APPBASE, 'manifest'),
+        // PKGVAR 自身（部分场景 manifest 会同步到数据目录）
+        path.join(PKGVAR, 'manifest'),
         // target 目录内（部分安装场景会同步到这里）
         path.join(APPDEST, 'manifest'),
         // 开发期仓库根
         path.join(__dirname, '..', '..', '..', 'manifest')
-    ];
+    ].filter(Boolean);
     for (var i = 0; i < candidates.length; i++) {
         var p = candidates[i];
         if (fs.existsSync(p)) {
@@ -72,7 +77,9 @@ function manifestPath() {
             } catch (e) {}
         }
     }
-    log('WARNING: no valid manifest found for appname=' + APPNAME);
+    log('WARNING: no valid manifest found for appname=' + APPNAME +
+        ' PKGVAR=' + PKGVAR + ' APPDEST=' + APPDEST + ' APPBASE=' + APPBASE +
+        ' TRIM_PKGHOME=' + (TRIM_PKGHOME || '(unset)'));
     // 兜底：返回第一个存在的
     for (var j = 0; j < candidates.length; j++) {
         if (fs.existsSync(candidates[j])) return candidates[j];
@@ -486,7 +493,7 @@ function getStatus() {
     };
 }
 
-log('updater loaded, APPNAME=' + APPNAME + ' PKGVAR=' + PKGVAR + ' APPDEST=' + APPDEST + ' APPBASE=' + APPBASE);
+log('updater loaded, APPNAME=' + APPNAME + ' PKGVAR=' + PKGVAR + ' APPDEST=' + APPDEST + ' APPBASE=' + APPBASE + ' TRIM_PKGHOME=' + (TRIM_PKGHOME || '(unset)'));
 
 module.exports = {
     detectArch, getCurrentVersion, check, downloadToNas, installFpk,
