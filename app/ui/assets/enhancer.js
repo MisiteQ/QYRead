@@ -1,4 +1,4 @@
-/*! 惬意阅读 壳层增强（v0.1.16）
+/*! 惬意阅读 壳层增强（v0.1.17）
  *  前端 bundle 为编译产物，所有增强均通过 DOM 观察外挂实现，不侵入 React 状态。
  *  功能：① 内容宽度滑块 ② 详情页读后感按钮 ③ 书架视图切换（大/中/小/列表，列表带书籍信息）
  *       ④ 阅读器外壳主题跟随 ⑤ 管理中心 AI/成就 tab 容器移除
@@ -637,7 +637,7 @@
   }
 
   /* ===================== 4e. 关于页：在线更新面板 ===================== */
-  var _updBox = null, _updState = null, _updChecking = false;
+  var _updBox = null, _updState = null, _updChecking = false, _updDownloading = false;
   function updApi(url, opt) {
     var token = localStorage.getItem('lr_token') || localStorage.getItem('token') || '';
     var headers = { 'Content-Type': 'application/json' };
@@ -712,6 +712,16 @@
         updApi('/api/extra/update/config', { method: 'POST', body: JSON.stringify({ autoupdate: e.target.checked }) })
           .then(function () {}).catch(function (err) { toast('保存配置失败：' + err.message); });
       });
+      // 板块顺序：简介 → 作者 → 软件更新 → 致谢 → 版权。
+      // 致谢卡（data-qy-credit）已先于本面板插入，故把更新面板插到致谢卡之前；
+      // 若致谢卡尚未出现则插到作者卡之后，末尾再兜底 appendChild。
+      var credit = box.querySelector('[data-qy-credit]');
+      if (credit) {
+        box.insertBefore(card, credit);
+      } else {
+        var authorCard = box.children[1] || null;
+        box.insertBefore(card, authorCard ? authorCard.nextSibling : (box.children[2] || null));
+      }
       updRefresh();
       return;
     }
@@ -727,10 +737,16 @@
       var inBtn = _updBox.querySelector('[data-qy-upd-install]');
       if (s.has_update) {
         msg.textContent = '发现新版本，可下载安装';
-        _updBox._setBtn(dlBtn, true, '下载 ' + (s.latest_version || '新版本') + ' 安装包到 NAS');
+      } else if (s.latest_version) {
+        msg.textContent = '已是最新版本（仍可下载安装包重装）';
       } else {
-        msg.textContent = s.latest_version ? '已是最新版本' : '点击检查更新';
-        _updBox._setBtn(dlBtn, false, s.latest_version ? '当前已是最新版本，无需下载' : '请先点击「检查更新」');
+        msg.textContent = '点击检查更新';
+      }
+      // 只要获取到了最新版本号，就允许下载（最新版也可重新下载/重装）
+      if (s.latest_version) {
+        _updBox._setBtn(dlBtn, true, '下载 ' + s.latest_version + ' 安装包到 NAS');
+      } else {
+        _updBox._setBtn(dlBtn, false, '请先点击「检查更新」');
       }
       if (s.error) {
         msg.textContent = '检查更新出错：' + s.error;
@@ -759,12 +775,22 @@
     }).catch(function (err) { _updChecking = false; toast('检查失败：' + err.message); });
   }
   function updDownload() {
-    if (!_updState || !_updState.has_update) { toast('请先检查更新'); return; }
-    toast('开始下载更新包…');
+    if (_updDownloading) return;
+    // 最新版也允许下载（重装）；仅当从未检查过、拿不到版本号时才要求先检查
+    if (!_updState || !_updState.latest_version) { toast('请先点击「检查更新」'); return; }
+    _updDownloading = true;
+    var dl = _updBox && _updBox.querySelector('[data-qy-upd-dl]');
+    if (dl) _updBox._setBtn(dl, false, '正在下载…');
+    toast('开始下载 ' + (_updState.latest_version || '') + ' 安装包到 NAS…');
     updApi('/api/extra/update/download', { method: 'POST' }).then(function (r) {
+      _updDownloading = false;
       toast(r && r.downloaded ? '下载完成，可立即更新' : '下载完成');
       updRefresh();
-    }).catch(function (err) { toast('下载失败：' + err.message); });
+    }).catch(function (err) {
+      _updDownloading = false;
+      toast('下载失败：' + err.message);
+      updRefresh();
+    });
   }
   function updInstall() {
     if (!_updState || !_updState.downloaded) { toast('请先下载更新包'); return; }
