@@ -1,8 +1,9 @@
-// 惬意阅读 - 在线更新服务（参考 fnmonitor UpdateManager，移植到 Node.js）
+// 惬意阅读 - 在线更新服务
 // 基于 GitHub Releases：检查新版本、下载 fpk 到 NAS、解包覆盖安装、自我重启。
 // 挂载到 /api/extra/update/*（由 routes/update.js 调用），无需改动混淆的 server.js。
 
 const https = require('https');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -12,9 +13,14 @@ const UPDATE_REPO = 'MisiteQ/QYRead';
 const UPDATE_CHECK_INTERVAL = 6 * 3600 * 1000;  // 6 小时
 const GH_MIRRORS = ['', 'https://gh-proxy.com/', 'https://ghfast.top/', 'https://ghproxy.net/', 'https://gh.llkk.cc/'];
 
-const PKGVAR = process.env.TRIM_PKGVAR || path.join(__dirname, '..', '..', '..');
-const APPDEST = process.env.TRIM_APPDEST || path.join(__dirname, '..', '..');
-const APPBASE = path.join(APPDEST, '..');  // /var/apps/{appname}（manifest / ICON / cmd 所在）
+// ---- 路径：全部显式用 TRIM_APPNAME 拼接，绝对避免读到其他应用的 manifest ----
+const APPNAME = process.env.TRIM_APPNAME || 'qyread';
+const TRIM_PKGVAR = process.env.TRIM_PKGVAR || path.join(__dirname, '..', '..', '..');
+const TRIM_APPDEST = process.env.TRIM_APPDEST || path.join(__dirname, '..', '..');
+const TRIM_APPBASE = path.join(TRIM_PKGVAR, '..', APPNAME);  // /var/apps/{appname}
+const PKGVAR = TRIM_PKGVAR;
+const APPDEST = TRIM_APPDEST;
+const APPBASE = TRIM_APPBASE;
 const DATA_DIR = process.env.DATA_DIR || PKGVAR;
 const UPDATE_DIR = path.join(DATA_DIR, 'update');
 const CONF_FILE = path.join(PKGVAR, 'update.conf');
@@ -34,28 +40,62 @@ function log(msg) {
 }
 
 function detectArch() {
-    // Node process.arch: 'arm64' -> arm；'x64' / 其它 -> x86
     var a = String(process.arch || '').toLowerCase();
     return (a === 'arm64' || a.indexOf('arm') === 0) ? 'arm' : 'x86';
 }
 
+// ---- manifest 路径：多重验证 appname 必须匹配 ----
 function manifestPath() {
-    // fnOS 应用基础目录的 manifest（应用中心读这个）；开发期回退到仓库根
-    var p = path.join(APPBASE, 'manifest');
-    if (fs.existsSync(p)) return p;
-    return path.join(__dirname, '..', '..', '..', 'manifest');
+    var candidates = [
+        // fnOS 应用基础目录（TRIM_PKGVAR 自身通常就是 /var/apps/{appname}）
+        path.join(PKGVAR, 'manifest'),
+        // 显式用 APPNAME 拼接
+        path.join(APPBASE, 'manifest'),
+        // target 目录内（部分安装场景会同步到这里）
+        path.join(APPDEST, 'manifest'),
+        // 开发期仓库根
+        path.join(__dirname, '..', '..', '..', 'manifest')
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+        var p = candidates[i];
+        if (fs.existsSync(p)) {
+            // 验证 appname 字段必须匹配 qyread，避免读到其他应用的 manifest
+            try {
+                var txt = fs.readFileSync(p, 'utf8');
+                var m = /^appname\s*=\s*(\S+)/m.exec(txt);
+                if (m && m[1] === APPNAME) {
+                    log('manifest path=' + p);
+                    return p;
+                } else if (m) {
+                    log('skipping manifest (appname=' + m[1] + ') at ' + p);
+                }
+            } catch (e) {}
+        }
+    }
+    log('WARNING: no valid manifest found for appname=' + APPNAME);
+    // 兜底：返回第一个存在的
+    for (var j = 0; j < candidates.length; j++) {
+        if (fs.existsSync(candidates[j])) return candidates[j];
+    }
+    return candidates[0];
 }
 
+// 严格锚定行首：只匹配首字段 version，不匹配 os_min_version / changelog 内嵌的版本号
 function getCurrentVersion() {
     try {
         var txt = fs.readFileSync(manifestPath(), 'utf8');
-        var m = /version\s*=\s*([0-9][0-9A-Za-z.\-]*)/.exec(txt);
-        if (m) return m[1];
-    } catch (e) {}
+        var m = /^version\s*=\s*([0-9][0-9A-Za-z.\-]*)/m.exec(txt);
+        if (m) {
+            log('current version=' + m[1]);
+            return m[1];
+        }
+    } catch (e) {
+        log('getCurrentVersion error: ' + (e.message || e));
+    }
+    log('WARNING: version not found in manifest, defaulting to 0.0.0');
     return '0.0.0';
 }
 
-// 'v2.9.0' / '2.9.0' -> [2,9,0]
 function verTuple(v) {
     var m = String(v || '').match(/\d+/g);
     if (!m) return [0, 0, 0];
@@ -70,15 +110,50 @@ function isNewer(latest, current) {
     return false;
 }
 
-// HTTPS GET：返回 {statusCode, headers, body} 或对下载返回 stream
-function httpsGet(url, opts) {
-    opts = opts || {};
+// ---- HTTPS：自动跟随 3xx 重定向（GitHub 下载链接必跳 302）----
+function followRedirect(res, opts) {
+    if (!res.headers.location) return null;
+    var loc = res.headers.location;
+    // 相对 URL 转绝对
+    if (!/^https?:\/\//i.test(loc)) {
+        var u = new URL(loc, opts._lastUrl || 'https://placeholder');
+        loc = u.href;
+    }
+    opts._lastUrl = loc;
+    var mod = /^https:/i.test(loc) ? https : http;
     return new Promise(function (resolve, reject) {
-        var req = https.get(url, {
+        var req = mod.get(loc, {
+            headers: opts.headers || {},
+            timeout: opts.timeout || 30000
+        }, function (r) {
+            resolve(r);
+        });
+        req.on('error', reject);
+        req.on('timeout', function () { req.destroy(new Error('timeout')); });
+    });
+}
+
+function httpsGet(url, opts, _depth) {
+    opts = opts || {};
+    _depth = _depth || 0;
+    if (_depth > 5) return Promise.reject(new Error('too many redirects'));
+    var mod = /^https:/i.test(url) ? https : http;
+    return new Promise(function (resolve, reject) {
+        var req = mod.get(url, {
             headers: opts.headers || {},
             timeout: opts.timeout || 30000
         }, function (res) {
-            resolve(res);
+            // 3xx 重定向：跟随
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                try { res.resume(); } catch (e) {}
+                var loc = res.headers.location;
+                if (!/^https?:\/\//i.test(loc)) {
+                    try { loc = new URL(loc, url).href; } catch (e) { loc = url.replace(/\/[^/]*$/, '') + '/' + loc.replace(/^\//, ''); }
+                }
+                httpsGet(loc, opts, _depth + 1).then(resolve).catch(reject);
+            } else {
+                resolve(res);
+            }
         });
         req.on('error', reject);
         req.on('timeout', function () { req.destroy(new Error('timeout')); });
@@ -110,7 +185,6 @@ function ghOpen(url, timeout) {
     });
 }
 
-// 读 body 到字符串
 function readBody(res, maxLen) {
     return new Promise(function (resolve, reject) {
         var chunks = [], total = 0;
@@ -179,7 +253,6 @@ async function check(force) {
                 }
             }
             if (!info.asset) {
-                // 兜底：任一同平台包
                 for (var j = 0; j < assets.length; j++) {
                     if (String(assets[j].name || '').endsWith('-' + arch + '.fpk')) {
                         info.asset = mkAsset(assets[j]);
@@ -229,7 +302,6 @@ async function downloadToNas(asset, destDir) {
             ws.on('error', reject);
             res.on('error', reject);
         });
-        // SHA256 校验
         var expect = String((asset && asset.digest) || '').toLowerCase();
         if (expect) {
             var h = crypto.createHash('sha256');
@@ -242,7 +314,7 @@ async function downloadToNas(asset, destDir) {
             fs.closeSync(fd);
             if (h.digest('hex') !== expect) {
                 try { fs.unlinkSync(tmp); } catch (e) {}
-                return { success: false, error: '安装包 SHA256 校验失败（下载不完整或被篡改），请重试' };
+                return { success: false, error: '安装包 SHA256 校验失败' };
             }
         }
         fs.renameSync(tmp, final);
@@ -260,10 +332,8 @@ async function downloadToNas(asset, destDir) {
 }
 
 function downloadedPath() {
-    // 检查已下载的 fpk 是否还在
     var f = _status.downloaded_file;
     if (f && fs.existsSync(f)) return f;
-    // 兜底：扫描 update 目录
     try {
         var arch = detectArch();
         var files = fs.readdirSync(UPDATE_DIR).filter(function (n) {
@@ -274,13 +344,12 @@ function downloadedPath() {
     return '';
 }
 
-// ---- 安装（解包 fpk 覆盖应用目录后自我重启） ----
+// ---- 安装 ----
 async function installFpk(fpkPath) {
     var tmp = path.join(UPDATE_DIR, '_extract');
     try { execSync('rm -rf "' + tmp + '"', { stdio: 'ignore' }); } catch (e) {}
     try { fs.mkdirSync(tmp, { recursive: true }); } catch (e) {}
     try {
-        // fpk 结构：app.tgz + cmd/ + manifest，平铺
         execSync('tar -xf "' + fpkPath + '" -C "' + tmp + '"', { stdio: 'pipe' });
     } catch (e) {
         return { success: false, error: '安装包解压失败: ' + (e.message || e) };
@@ -298,7 +367,8 @@ async function installFpk(fpkPath) {
     } else {
         appSrc = fs.existsSync(path.join(tmp, 'server')) ? tmp : null;
     }
-    if (!appSrc || !fs.existsSync(path.join(appSrc, 'server')) && !fs.existsSync(path.join(appSrc, 'server.js'))) {
+    // 括号明确 && 优先级（避免歧义）
+    if (!appSrc || !(fs.existsSync(path.join(appSrc, 'server')) || fs.existsSync(path.join(appSrc, 'server.js')))) {
         try { execSync('rm -rf "' + tmp + '"'); } catch (e) {}
         return { success: false, error: 'fpk 包内未找到 app 内容（server 目录）' };
     }
@@ -307,7 +377,6 @@ async function installFpk(fpkPath) {
         return { success: false, error: 'fpk 包内缺少 manifest' };
     }
 
-    // 备份当前应用目录（target），失败可回滚
     var bak = APPDEST + '.bak';
     try { execSync('rm -rf "' + bak + '"', { stdio: 'ignore' }); } catch (e) {}
     try {
@@ -318,28 +387,28 @@ async function installFpk(fpkPath) {
     }
 
     try {
-        // 覆盖应用目录（target）内容
+        // 覆盖 target 应用目录
         execSync('cp -a ' + JSON.stringify(appSrc + '/.') + ' ' + JSON.stringify(APPDEST + '/'), { stdio: 'pipe' });
-        // 同步 manifest / cmd / ICON 到应用基础目录（应用中心读这里的 manifest 版本号）
+        // 同步 manifest / cmd / ICON 到应用基础目录（应用中心读这里的版本号）
         ['manifest', 'cmd', 'ICON.PNG', 'ICON_256.PNG'].forEach(function (item) {
             var s = path.join(tmp, item);
             if (!fs.existsSync(s)) return;
+            var isDir = fs.statSync(s).isDirectory();
+            // APPBASE：fnOS 应用中心读这里
             var d = path.join(APPBASE, item);
             try {
-                execSync('cp -a ' + JSON.stringify(s + (fs.statSync(s).isDirectory() ? '/.' : '')) + ' ' + JSON.stringify(d + (fs.statSync(s).isDirectory() ? '/' : '')), { stdio: 'ignore' });
+                execSync('cp -a ' + JSON.stringify(s + (isDir ? '/.' : '')) + ' ' + JSON.stringify(d + (isDir ? '/' : '')), { stdio: 'ignore' });
             } catch (e) {}
-            // 同时覆盖 target 下的同名（与 fnmonitor 一致）
+            // APPDEST：target 内也保持一份
             var d2 = path.join(APPDEST, item);
             try {
-                execSync('cp -a ' + JSON.stringify(s + (fs.statSync(s).isDirectory() ? '/.' : '')) + ' ' + JSON.stringify(d2 + (fs.statSync(s).isDirectory() ? '/' : '')), { stdio: 'ignore' });
+                execSync('cp -a ' + JSON.stringify(s + (isDir ? '/.' : '')) + ' ' + JSON.stringify(d2 + (isDir ? '/' : '')), { stdio: 'ignore' });
             } catch (e) {}
         });
-        // 校验新 server.js 存在
         if (!fs.existsSync(path.join(APPDEST, 'server', 'server.js'))) {
             throw new Error('安装后未找到 server/server.js');
         }
     } catch (e) {
-        // 回滚
         try { execSync('rm -rf "' + APPDEST + '"', { stdio: 'ignore' }); } catch (err) {}
         try { execSync('cp -a "' + bak + '" "' + APPDEST + '"', { stdio: 'ignore' }); } catch (err) {}
         try { execSync('rm -rf "' + tmp + '"'); } catch (err) {}
@@ -351,11 +420,10 @@ async function installFpk(fpkPath) {
     return { success: true, message: '新版本已安装，服务正在重启…' };
 }
 
-// ---- 重启：脱离当前进程调度 cmd/main restart，然后退出 ----
+// ---- 重启 ----
 function restart() {
     var cmdMain = path.join(APPBASE, 'cmd', 'main');
     try {
-        // 写 restart-trigger 标记（便于排查）
         fs.writeFileSync(path.join(PKGVAR, 'restart-trigger'), String(Date.now()));
     } catch (e) {}
     log('scheduling restart via ' + cmdMain);
@@ -366,7 +434,6 @@ function restart() {
     } catch (e) {
         log('spawn restart failed: ' + (e.message || e));
     }
-    // 给 HTTP 响应留出送达时间，由 cmd/main stop 终止本进程
     setTimeout(function () {
         log('exiting for restart');
         process.exit(0);
@@ -402,7 +469,6 @@ function startAutoCheck() {
     log('auto-check started, interval=' + (UPDATE_CHECK_INTERVAL / 3600000) + 'h');
 }
 
-// ---- 综合状态（给前端） ----
 function getStatus() {
     var dp = downloadedPath();
     return {
@@ -419,6 +485,8 @@ function getStatus() {
         autocheck: loadConfig().autocheck !== false
     };
 }
+
+log('updater loaded, APPNAME=' + APPNAME + ' PKGVAR=' + PKGVAR + ' APPDEST=' + APPDEST + ' APPBASE=' + APPBASE);
 
 module.exports = {
     detectArch, getCurrentVersion, check, downloadToNas, installFpk,
