@@ -11,6 +11,9 @@ const { authenticateToken } = require('../middleware/auth');
 
 const EXTRA_UI_DIR = path.join(__dirname, '..', 'extra-ui');
 
+// 在线更新子路由（挂载到 /api/extra/update/*）
+router.use('/update', require('./update'));
+
 // ---------- 数据表（幂等） ----------
 db.run(`CREATE TABLE IF NOT EXISTS book_reviews (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,5 +94,11 @@ router.delete('/reviews/:bookId', authenticateToken, async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+
+// 启动后台自动检查更新（延迟 30 秒等数据库/服务就绪）
+try {
+    const updater = require('../services/updater');
+    setTimeout(() => { try { updater.startAutoCheck(); } catch (e) {} }, 30000);
+} catch (e) {}
 
 module.exports = router;

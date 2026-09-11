@@ -1,10 +1,11 @@
-/*! 惬意阅读 壳层增强（v0.1.12）
+/*! 惬意阅读 壳层增强（v0.1.13）
  *  前端 bundle 为编译产物，所有增强均通过 DOM 观察外挂实现，不侵入 React 状态。
  *  功能：① 内容宽度滑块 ② 详情页读后感按钮 ③ 书架视图切换（大/中/小/列表，列表带书籍信息）
  *       ④ 阅读器外壳主题跟随 ⑤ 管理中心 AI/成就 tab 容器移除
- *       ⑥ 落地页话术改写 ⑦ 关于页版本号同步 + 致谢信息 ⑧ 阅读自动加入书架并提示
- *       ⑨ TTS 默认使用 Edge 在线引擎 ⑩ “我的”页用户卡片禁用跳转（成就页已下线）
+ *       ⑥ 落地页话术改写 ⑦ 关于页版本号同步 + 致谢信息 + 在线更新 ⑧ 阅读自动加入书架并提示
+ *       ⑨ TTS 默认使用 Edge 在线引擎 ⑩ "我的"页用户卡片禁用跳转（成就页已下线）
  *       ⑪ 阅读器白噪音背景音（白/粉/棕噪、雨声、海浪、篝火，仅阅读页显示，离开自动停止）
+ *       ⑫ 书架详细列表返回自动刷新 ⑬ 白噪音按钮浮动拖拽 + 播放速度调整 + 初始居中
  *  说明：AI 助手 / 成就中心 / 分享功能已下线；TTS 听书使用 Edge 在线引擎。
  */
 (function () {
@@ -608,6 +609,118 @@
     }
   }
 
+  /* ===================== 4e. 关于页：在线更新面板 ===================== */
+  var _updBox = null, _updState = null, _updChecking = false;
+  function updApi(url, opt) {
+    var token = localStorage.getItem('lr_token') || localStorage.getItem('token') || '';
+    var headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    return fetch(url, Object.assign({ headers: headers, credentials: 'same-origin' }, opt || {}))
+      .then(function (r) {
+        if (!r.ok) return r.json().catch(function () { return {}; }).then(function (e) {
+          throw new Error(e.error || ('请求失败 (' + r.status + ')'));
+        });
+        return r.status === 204 ? null : r.json();
+      });
+  }
+  function injectUpdatePanel() {
+    var h3s = document.getElementsByTagName('h3');
+    for (var i = 0; i < h3s.length; i++) {
+      if ((h3s[i].textContent || '').trim() !== '惬意阅读') continue;
+      var root = h3s[i].closest ? h3s[i].closest('.p-4') : null;
+      var box = root ? root.querySelector('.max-w-sm') : null;
+      if (!box || box.querySelector('[data-qy-update]')) return;
+      var card = document.createElement('div');
+      card.setAttribute('data-qy-update', '1');
+      card.className = 'p-4 rounded-xl';
+      card.style.cssText = 'background:rgba(51,112,255,.08);margin-top:12px';
+      card.innerHTML =
+        '<h4 class="font-medium mb-2">软件更新</h4>' +
+        '<div style="font-size:13px;line-height:1.9;opacity:.88">' +
+          '<div>当前版本：<b data-qy-upd-cur>—</b></div>' +
+          '<div>最新版本：<b data-qy-upd-latest>—</b></div>' +
+          '<div data-qy-upd-msg style="opacity:.7;font-size:12px"></div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
+          '<button type="button" data-qy-upd-check style="...">检查更新</button>' +
+          '<button type="button" data-qy-upd-dl style="...">下载到 NAS</button>' +
+          '<button type="button" data-qy-upd-install style="...">立即更新</button>' +
+        '</div>' +
+        '<label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;opacity:.8">' +
+          '<input type="checkbox" data-qy-upd-auto> 自动检查并安装更新</label>';
+      box.appendChild(card);
+      _updBox = card;
+      // 统一按钮样式
+      card.querySelectorAll('button').forEach(function (b) {
+        b.style.cssText = 'border:1px solid rgba(51,112,255,.4);background:#3370ff;color:#fff;' +
+          'border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer';
+      });
+      card.querySelector('[data-qy-upd-dl]').disabled = true;
+      card.querySelector('[data-qy-upd-install]').disabled = true;
+      card.querySelector('[data-qy-upd-check]').addEventListener('click', updCheck);
+      card.querySelector('[data-qy-upd-dl]').addEventListener('click', updDownload);
+      card.querySelector('[data-qy-upd-install]').addEventListener('click', updInstall);
+      card.querySelector('[data-qy-upd-auto]').addEventListener('change', function (e) {
+        updApi('/api/extra/update/config', { method: 'POST', body: JSON.stringify({ autoupdate: e.target.checked }) })
+          .then(function () {}).catch(function (err) { toast('保存配置失败：' + err.message); });
+      });
+      updRefresh();
+      return;
+    }
+  }
+  function updRefresh() {
+    if (!_updBox) return;
+    updApi('/api/extra/update/status').then(function (s) {
+      _updState = s || {};
+      _updBox.querySelector('[data-qy-upd-cur]').textContent = s.current_version || '—';
+      _updBox.querySelector('[data-qy-upd-latest]').textContent = s.latest_version || '—';
+      var msg = _updBox.querySelector('[data-qy-upd-msg]');
+      if (s.has_update) {
+        msg.textContent = '发现新版本，可下载安装';
+        _updBox.querySelector('[data-qy-upd-dl]').disabled = false;
+      } else {
+        msg.textContent = s.latest_version ? '已是最新版本' : '点击检查更新';
+      }
+      if (s.downloaded) {
+        msg.textContent = '已下载，可立即更新';
+        _updBox.querySelector('[data-qy-upd-install]').disabled = false;
+      } else {
+        _updBox.querySelector('[data-qy-upd-install]').disabled = true;
+      }
+      _updBox.querySelector('[data-qy-upd-auto]').checked = !!s.autoupdate;
+    }).catch(function () {
+      _updBox.querySelector('[data-qy-upd-msg]').textContent = '更新服务未就绪';
+    });
+  }
+  function updCheck() {
+    if (_updChecking) return;
+    _updChecking = true;
+    toast('正在检查更新…');
+    updApi('/api/extra/update/check', { method: 'POST' }).then(function (s) {
+      _updChecking = false;
+      _updState = s || {};
+      updRefresh();
+      toast(s.has_update ? ('发现新版本 ' + (s.latest_version || '')) : '已是最新版本');
+    }).catch(function (err) { _updChecking = false; toast('检查失败：' + err.message); });
+  }
+  function updDownload() {
+    if (!_updState || !_updState.has_update) { toast('请先检查更新'); return; }
+    toast('开始下载更新包…');
+    updApi('/api/extra/update/download', { method: 'POST' }).then(function (r) {
+      toast(r && r.downloaded ? '下载完成，可立即更新' : '下载完成');
+      updRefresh();
+    }).catch(function (err) { toast('下载失败：' + err.message); });
+  }
+  function updInstall() {
+    if (!_updState || !_updState.downloaded) { toast('请先下载更新包'); return; }
+    if (!confirm('确认安装更新？服务将重启。')) return;
+    toast('正在安装更新，服务即将重启…');
+    updApi('/api/extra/update/install', { method: 'POST' }).then(function () {
+      toast('更新完成，等待服务重启…');
+      setTimeout(function () { location.reload(); }, 8000);
+    }).catch(function (err) { toast('安装失败：' + err.message); });
+  }
+
   /* ===================== 4f. 书架详细列表：补充作者/章节/进度 =====================
    * 书架列表接口 /api/books?in_bookshelf=1 只返回 books 表本身字段（id/title/author/...），
    * 进度/章节在独立的 progress 表，由另一个接口返回。
@@ -812,9 +925,53 @@
     });
   }
 
+  /* ---- 书架元数据自动刷新：从阅读页返回书架/首页时强制刷新 ---- */
+  function forceShelfRefresh() {
+    try { sessionStorage.removeItem(BS_CACHE_KEY); } catch (e) {}
+    shelfMetaMap = null;
+    shelfMetaAt = 0;
+    shelfMetaLoading = false;
+    shelfMetaReqId++;
+    loadShelfMeta();
+    try { enrichListMeta(); } catch (e) {}
+  }
+  var _shelfLastPath = location.pathname;
+  var _shelfRefreshTimer = null;
+  function _scheduleShelfRefresh(delay) {
+    if (_shelfRefreshTimer) clearTimeout(_shelfRefreshTimer);
+    _shelfRefreshTimer = setTimeout(function () {
+      _shelfRefreshTimer = null;
+      try { forceShelfRefresh(); } catch (e) {}
+    }, delay);
+  }
+  function _shelfRouteEmit() {
+    var cur = location.pathname;
+    var wasReading = /^\/read\/\d+/.test(_shelfLastPath);
+    var isReading = /^\/read\/\d+/.test(cur);
+    _shelfLastPath = cur;
+    // 从阅读页跳到非阅读页（返回书架/首页）→ 触发刷新
+    if (wasReading && !isReading) _scheduleShelfRefresh(800);
+  }
+  (function initShelfRouteListener() {
+    var _push = history.pushState, _replace = history.replaceState;
+    history.pushState = function () { var r = _push.apply(this, arguments); _shelfRouteEmit(); return r; };
+    history.replaceState = function () { var r = _replace.apply(this, arguments); _shelfRouteEmit(); return r; };
+    window.addEventListener('popstate', _shelfRouteEmit);
+    // 页面从隐藏到可见时，若不在阅读页且距上次拉取超过 5 秒，触发刷新
+    function onVisible() {
+      if (document.visibilityState && document.visibilityState !== 'visible') return;
+      if (/^\/read\/\d+/.test(location.pathname)) return;
+      if (Date.now() - shelfMetaAt > 5000) _scheduleShelfRefresh(300);
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+  })();
+
   /* ===================== 4g. 阅读器白噪音（仅 /read/:id 页面，WebAudio 纯合成，无音频文件） ===================== */
   var WN_KEY_SOUND = 'qy_wn_sound';
   var WN_KEY_VOL = 'qy_wn_volume';
+  var WN_KEY_POS = 'qy_wn_btn_pos';
+  var WN_KEY_RATE = 'qy_wn_rate';
   var WN_SOUNDS = [
     { id: 'white', name: '白噪音' },
     { id: 'pink',  name: '粉噪音' },
@@ -892,6 +1049,7 @@
   function wnLfo(freq, depth, target) {
     var osc = wnCtx.createOscillator(), g = wnCtx.createGain();
     osc.frequency.value = freq; g.gain.value = depth;
+    osc._baseFreq = freq;  // 供播放速度调整时按比例缩放
     osc.connect(g); g.connect(target);
     osc.start();
     return { osc: osc, g: g };
@@ -931,23 +1089,30 @@
       g = wnCtx.createGain(); g.gain.value = 0.85;
       src.connect(filt); filt.connect(g); g.connect(out);
       nodes.push(src);
-      // 随机噼啪声：短促带通噪声脉冲
-      var timer = setInterval(function () {
-        if (Math.random() > 0.55) return;
-        try {
-          var t = wnCtx.currentTime, pop = wnLoop(bufs.white);
-          pop.loop = false;
-          var pf = wnCtx.createBiquadFilter(); pf.type = 'bandpass';
-          pf.frequency.value = 900 + Math.random() * 2600; pf.Q.value = 1.4;
-          var pg = wnCtx.createGain();
-          pg.gain.setValueAtTime(0, t);
-          pg.gain.linearRampToValueAtTime(0.12 + Math.random() * 0.25, t + 0.006);
-          pg.gain.exponentialRampToValueAtTime(0.001, t + 0.04 + Math.random() * 0.10);
-          pop.connect(pf); pf.connect(pg); pg.connect(wnMaster);
-          pop.start(t); pop.stop(t + 0.2);
-        } catch (e) {}
-      }, 130);
-      nodes.push({ _timer: timer });
+      // 随机噼啪声：自调度 setTimeout，间隔随播放速度调整
+      var crackle = { _id: null };
+      function firePop() {
+        var interval = 130 / wnRate();
+        crackle._id = setTimeout(function () {
+          if (Math.random() <= 0.55) {
+            try {
+              var t = wnCtx.currentTime, pop = wnLoop(bufs.white);
+              pop.loop = false;
+              var pf = wnCtx.createBiquadFilter(); pf.type = 'bandpass';
+              pf.frequency.value = 900 + Math.random() * 2600; pf.Q.value = 1.4;
+              var pg = wnCtx.createGain();
+              pg.gain.setValueAtTime(0, t);
+              pg.gain.linearRampToValueAtTime(0.12 + Math.random() * 0.25, t + 0.006);
+              pg.gain.exponentialRampToValueAtTime(0.001, t + 0.04 + Math.random() * 0.10);
+              pop.connect(pf); pf.connect(pg); pg.connect(wnMaster);
+              pop.start(t); pop.stop(t + 0.2);
+            } catch (e) {}
+          }
+          firePop();
+        }, interval);
+      }
+      firePop();
+      nodes.push({ _timer: crackle, _isHandle: true });
     }
     return { out: out, nodes: nodes };
   }
@@ -957,6 +1122,7 @@
     wnTeardownBag();
     wnBag = wnBuild(id);
     wnBag.nodes.forEach(function (n) { if (n.start) { try { n.start(0); } catch (e) {} } });
+    wnSetRate(wnRate());  // 应用当前播放速度
     wnActive = id;
     try { localStorage.setItem(WN_KEY_SOUND, id); } catch (e) {}
     // 淡入避免咔哒声
@@ -969,7 +1135,12 @@
   function wnTeardownBag() {
     if (wnBag) {
       wnBag.nodes.forEach(function (n) {
-        try { if (n._timer) clearInterval(n._timer); else if (n.stop) n.stop(); } catch (e) {}
+        try {
+          if (n._timer) {
+            if (n._isHandle && n._timer._id != null) clearTimeout(n._timer._id);
+            else clearInterval(n._timer);
+          } else if (n.stop) n.stop();
+        } catch (e) {}
         try { n.disconnect && n.disconnect(); } catch (e) {}
       });
       try { wnBag.out.disconnect(); } catch (e) {}
@@ -1000,6 +1171,20 @@
       wnMaster.gain.setTargetAtTime(v, wnCtx.currentTime, 0.05);
     }
   }
+  function wnRate() {
+    var v = parseFloat(localStorage.getItem(WN_KEY_RATE));
+    return (!isNaN(v) && v >= 0.5 && v <= 2) ? v : 1.0;
+  }
+  function wnSetRate(v) {
+    v = Math.max(0.5, Math.min(2, v));
+    try { localStorage.setItem(WN_KEY_RATE, String(v)); } catch (e) {}
+    if (wnBag) {
+      wnBag.nodes.forEach(function (n) {
+        try { if (n.playbackRate) n.playbackRate.value = v; } catch (e) {}          // BufferSource
+        try { if (n._baseFreq && n.frequency) n.frequency.value = n._baseFreq * v; } catch (e) {}  // LFO 振荡器
+      });
+    }
+  }
   function isReadingPath() {
     return /^\/read\/\d+/.test(location.pathname);
   }
@@ -1017,26 +1202,37 @@
         '<div class="qy-wn-grid" data-qy-wn-grid></div>' +
         '<div class="qy-wn-vol"><span>音量</span><input type="range" min="0" max="1" step="0.05" data-qy-wn-vol>' +
         '<span data-qy-wn-volv></span></div>' +
+        '<div class="qy-wn-rate"><span>速度</span><input type="range" min="0.5" max="2" step="0.1" data-qy-wn-rate>' +
+        '<span data-qy-wn-ratev></span></div>' +
       '</div>';
     var st = document.createElement('style');
     st.id = 'qy-wn-style';
     st.textContent =
-      '#qy-wn{position:fixed;left:12px;bottom:112px;z-index:99990;font-family:inherit;-webkit-tap-highlight-color:transparent}' +
+      '#qy-wn{position:fixed;z-index:99990;font-family:inherit;-webkit-tap-highlight-color:transparent;' +
+        'transition:left .18s ease,right .18s ease,top .18s ease}' +
+      '#qy-wn.qy-wn-dragging{transition:none}' +
       '#qy-wn .qy-wn-fab{border:none;border-radius:999px;padding:8px 14px;font-size:13px;line-height:1;color:#fff;' +
-      'background:rgba(0,0,0,.55);backdrop-filter:blur(6px);box-shadow:0 2px 10px rgba(0,0,0,.28);cursor:pointer}' +
+        'background:rgba(0,0,0,.55);backdrop-filter:blur(6px);box-shadow:0 2px 10px rgba(0,0,0,.28);cursor:grab;' +
+        'user-select:none;-webkit-user-select:none;touch-action:none;animation:qyWnFloat 3s ease-in-out infinite}' +
+      '@keyframes qyWnFloat{0%,100%{transform:translateY(0);box-shadow:0 2px 10px rgba(0,0,0,.28)}' +
+        '50%{transform:translateY(-6px);box-shadow:0 10px 22px rgba(51,112,255,.30)}}' +
       '#qy-wn .qy-wn-fab.on{background:rgba(51,112,255,.95)}' +
-      '#qy-wn .qy-wn-panel{margin-top:8px;width:224px;box-sizing:border-box;background:rgba(28,28,30,.94);color:#f2f2f2;' +
-      'border-radius:14px;padding:12px;box-shadow:0 8px 28px rgba(0,0,0,.38);backdrop-filter:blur(8px)}' +
+      '#qy-wn .qy-wn-fab.dragging{animation:none;cursor:grabbing;opacity:.85;box-shadow:0 8px 20px rgba(0,0,0,.22)}' +
+      '#qy-wn .qy-wn-panel{position:absolute;top:calc(100% + 8px);width:224px;box-sizing:border-box;' +
+        'background:rgba(28,28,30,.94);color:#f2f2f2;border-radius:14px;padding:12px;' +
+        'box-shadow:0 8px 28px rgba(0,0,0,.38);backdrop-filter:blur(8px)}' +
       '#qy-wn .qy-wn-row{display:flex;align-items:center;margin-bottom:8px}' +
       '#qy-wn .qy-wn-title{flex:1;font-size:12px;opacity:.72}' +
       '#qy-wn .qy-wn-stop,#qy-wn .qy-wn-x{border:none;background:none;color:#ccc;font-size:14px;cursor:pointer;padding:0 6px;line-height:1}' +
       '#qy-wn .qy-wn-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px}' +
       '#qy-wn .qy-wn-grid button{border:1px solid rgba(255,255,255,.18);background:transparent;color:#eee;' +
-      'border-radius:8px;padding:7px 0;font-size:12px;cursor:pointer}' +
+        'border-radius:8px;padding:7px 0;font-size:12px;cursor:pointer}' +
       '#qy-wn .qy-wn-grid button.on{background:#3370ff;border-color:#3370ff;color:#fff}' +
-      '#qy-wn .qy-wn-vol{display:flex;align-items:center;gap:8px;font-size:11px;opacity:.85}' +
-      '#qy-wn .qy-wn-vol input{flex:1;min-width:0}' +
-      '#qy-wn .qy-wn-vol span:last-child{width:30px;text-align:right}';
+      '#qy-wn .qy-wn-vol,#qy-wn .qy-wn-rate{display:flex;align-items:center;gap:8px;font-size:11px;opacity:.85}' +
+      '#qy-wn .qy-wn-rate{margin-top:6px}' +
+      '#qy-wn .qy-wn-vol input,#qy-wn .qy-wn-rate input{flex:1;min-width:0}' +
+      '#qy-wn .qy-wn-vol span:last-child,#qy-wn .qy-wn-rate span:last-child{width:30px;text-align:right}' +
+      '@media (prefers-reduced-motion:reduce){#qy-wn .qy-wn-fab{animation:none;box-shadow:0 2px 10px rgba(0,0,0,.28)}}';
 
     var grid = root.querySelector('[data-qy-wn-grid]');
     WN_SOUNDS.forEach(function (s) {
@@ -1046,10 +1242,6 @@
         if (wnActive === s.id) wnStop(); else wnPlay(s.id);
       });
       grid.appendChild(b);
-    });
-    root.querySelector('[data-qy-wn-fab]').addEventListener('click', function () {
-      wnPanelOpen = !wnPanelOpen;
-      wnRender();
     });
     root.querySelector('[data-qy-wn-x]').addEventListener('click', function () {
       wnPanelOpen = false; wnRender();
@@ -1063,9 +1255,111 @@
       wnSetVol(v);
       root.querySelector('[data-qy-wn-volv]').textContent = Math.round(v * 100) + '';
     });
+    var rateSlider = root.querySelector('[data-qy-wn-rate]');
+    rateSlider.value = String(wnRate());
+    root.querySelector('[data-qy-wn-ratev]').textContent = wnRate().toFixed(1) + 'x';
+    rateSlider.addEventListener('input', function () {
+      var v = parseFloat(rateSlider.value) || 1;
+      wnSetRate(v);
+      root.querySelector('[data-qy-wn-ratev]').textContent = v.toFixed(1) + 'x';
+    });
+
+    // 浮动按钮拖拽 + 位置持久化（复用小说下载按钮模式）
+    var WN_M = 12, WN_DRAG_THRESHOLD = 8;
+    function wnLoadPos() {
+      try { return JSON.parse(localStorage.getItem(WN_KEY_POS)) || {}; } catch (e) { return {}; }
+    }
+    function wnClampTop(top) {
+      var fabEl = root.querySelector('.qy-wn-fab');
+      var hh = fabEl ? fabEl.offsetHeight : 36;
+      var max = window.innerHeight - hh - WN_M;
+      return Math.round(Math.max(WN_M, Math.min(top, Math.max(WN_M, max))));
+    }
+    function wnApplySide(side) {
+      if (side === 'left') {
+        root.style.left = 'max(' + WN_M + 'px, env(safe-area-inset-left))';
+        root.style.right = 'auto';
+      } else {
+        root.style.right = 'max(' + WN_M + 'px, env(safe-area-inset-right))';
+        root.style.left = 'auto';
+      }
+      var panel = root.querySelector('.qy-wn-panel');
+      if (panel) {
+        panel.style.right = side === 'right' ? '0' : 'auto';
+        panel.style.left = side === 'left' ? '0' : 'auto';
+      }
+    }
+    function wnPlace(animate) {
+      var p = wnLoadPos();
+      var side = p.side === 'left' ? 'left' : 'right';
+      var fabEl = root.querySelector('.qy-wn-fab');
+      if (!animate) root.classList.add('qy-wn-dragging');
+      wnApplySide(side);
+      if (typeof p.top === 'number') {
+        root.style.top = wnClampTop(p.top) + 'px';
+        root.style.bottom = 'auto';
+      } else {
+        // 初始位置：页面垂直居中
+        var hh = fabEl ? fabEl.offsetHeight : 36;
+        root.style.top = Math.round(window.innerHeight / 2 - hh / 2) + 'px';
+        root.style.bottom = 'auto';
+      }
+      if (!animate) requestAnimationFrame(function () { root.classList.remove('qy-wn-dragging'); });
+    }
+
+    var fab = root.querySelector('.qy-wn-fab');
+    var sx, sy, startLeft, startTop, dragging, w, h;
+    fab.addEventListener('pointerdown', function (e) {
+      if (e.button !== undefined && e.button !== 0) return;
+      var r = root.getBoundingClientRect();
+      w = r.width; h = r.height;
+      sx = e.clientX; sy = e.clientY;
+      startLeft = r.left; startTop = r.top;
+      dragging = false;
+      fab.clicked = false;
+      fab.setPointerCapture && fab.setPointerCapture(e.pointerId);
+    });
+    fab.addEventListener('pointermove', function (e) {
+      if (sx === undefined) return;
+      var dx = e.clientX - sx, dy = e.clientY - sy;
+      if (!dragging && Math.max(Math.abs(dx), Math.abs(dy)) < WN_DRAG_THRESHOLD) return;
+      if (!dragging) {
+        dragging = true;
+        fab.classList.add('dragging');
+        root.classList.add('qy-wn-dragging');
+        root.style.right = 'auto';
+        wnPanelOpen = false; wnRender();  // 拖拽时收起面板
+      }
+      var nl = Math.max(WN_M, Math.min(window.innerWidth - w - WN_M, startLeft + dx));
+      var nt = wnClampTop(startTop + dy);
+      root.style.left = nl + 'px';
+      root.style.top = nt + 'px';
+    });
+    function wnEndDrag() {
+      if (sx === undefined) return;
+      if (dragging) {
+        var r = root.getBoundingClientRect();
+        var side = (r.left + w / 2) < (window.innerWidth / 2) ? 'left' : 'right';
+        var top = wnClampTop(r.top);
+        try { localStorage.setItem(WN_KEY_POS, JSON.stringify({ side: side, top: top })); } catch (err) {}
+        fab.classList.remove('dragging');
+        root.classList.remove('qy-wn-dragging');
+        wnApplySide(side);
+        root.style.top = top + 'px';
+      } else {
+        // 短按（未达拖拽阈值）切换面板
+        if (!fab.clicked) { fab.clicked = true; wnPanelOpen = !wnPanelOpen; wnRender(); setTimeout(function () { fab.clicked = false; }, 200); }
+      }
+      sx = sy = undefined;
+    }
+    fab.addEventListener('pointerup', wnEndDrag);
+    fab.addEventListener('pointercancel', wnEndDrag);
+    window.addEventListener('resize', function () { wnPlace(true); });
+
     // 全部就绪后再上屏，避免中途异常残留半成品 DOM
     document.documentElement.appendChild(st);
     document.body.appendChild(root);
+    wnPlace(false);
     wnUI = root;
   }
   function wnRender() {
@@ -1203,6 +1497,7 @@
       try { enrichListMeta(); } catch (e) {}
       try { neutralizeProfileCard(); } catch (e) {}
       try { injectAboutCredit(); } catch (e) {}
+      try { injectUpdatePanel(); } catch (e) {}
       try { scanConcealEntries(document.body); } catch (e) {}
       try { startShellObserver(); } catch (e) {}
     });
