@@ -31,6 +31,7 @@ Thumbs.db
 desktop.ini
 .idea/
 .vscode/
+.trae/
 *.iml
 
 # ===== fnpack 临时构建树 =====
