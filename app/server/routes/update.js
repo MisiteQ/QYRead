@@ -61,7 +61,16 @@ router.post('/download', async (req, res) => {
 // 安装并重启
 router.post('/install', async (req, res) => {
     try {
-        let fpkPath = (req.body && req.body.path) || updater.downloadedPath();
+        // 优先精确匹配指定版本的安装包（防止重装时误用残留旧包），
+        // 其次用前端显式传入路径，最后回退到本地最高版本包
+        let fpkPath = (req.body && req.body.path) || null;
+        if (req.body && req.body.expected_version) {
+            fpkPath = updater.downloadedPathForVersion(req.body.expected_version);
+            if (!fpkPath) {
+                return res.status(400).json({ error: '未找到 v' + req.body.expected_version + ' 的安装包，请先下载' });
+            }
+        }
+        if (!fpkPath) fpkPath = updater.downloadedPath();
         if (!fpkPath || !fs.existsSync(fpkPath)) {
             return res.status(400).json({ error: '请先下载安装包' });
         }

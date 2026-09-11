@@ -1,4 +1,4 @@
-/*! 惬意阅读 壳层增强（v0.1.18）
+/*! 惬意阅读 壳层增强（v0.1.19）
  *  前端 bundle 为编译产物，所有增强均通过 DOM 观察外挂实现，不侵入 React 状态。
  *  功能：① 内容宽度滑块 ② 详情页读后感按钮 ③ 书架视图切换（大/中/小/列表，列表带书籍信息）
  *       ④ 阅读器外壳主题跟随 ⑤ 管理中心 AI/成就 tab 容器移除
@@ -766,26 +766,33 @@
           _updBox._setBtn(b, false, '更新进行中…');
         });
       } else {
-        if (s.has_update) {
-          msg.textContent = '发现新版本，可一键下载并安装';
-        } else if (s.latest_version) {
-          msg.textContent = '已是最新版本（仍可下载安装包重装）';
-        } else {
-          msg.textContent = '点击检查更新';
-        }
+        // 只有磁盘上存在「与最新版本号一致」的安装包，才算已就绪可直接安装；
+        // 残留的旧版本包不算（否则最新版重装时会误装旧包）
+        var readySame = !!s.latest_version && s.downloaded_version === s.latest_version;
         if (s.error) {
           msg.textContent = '检查更新出错：' + s.error;
-        }
-        if (s.downloaded) {
-          msg.textContent = '安装包已就绪，可立即更新';
+        } else if (!s.latest_version) {
+          msg.textContent = '点击检查更新';
+        } else if (s.has_update) {
+          msg.textContent = readySame
+            ? ('新版本 v' + s.latest_version + ' 安装包已就绪，可立即更新')
+            : '发现新版本，可一键下载并安装';
+        } else {
+          msg.textContent = '已是最新版本（可点「重新安装」修复异常）';
         }
         // 下载到 NAS：拿到最新版本号即可点（最新版也可重下重装）
         _updBox._setBtn(dlBtn, !!s.latest_version,
-          s.latest_version ? ('下载 ' + s.latest_version + ' 安装包到 NAS') : '请先点击「检查更新」');
-        // 立即更新：有目标版本即可点；未下载时一键自动完成「下载 → 安装」
+          s.latest_version ? ('下载 v' + s.latest_version + ' 安装包到 NAS') : '请先点击「检查更新」');
+        // 立即更新：有目标版本即可点；最新版时按钮直接显示「重新安装」，语义更明确
+        if (s.latest_version) {
+          inBtn.textContent = s.has_update ? '立即更新' : '重新安装';
+        }
         _updBox._setBtn(inBtn, !!s.latest_version,
-          s.downloaded ? ('立即安装 ' + (s.latest_version || '') + ' 并重启服务')
-                      : ('一键下载并安装 ' + (s.latest_version || '') + '（自动完成）'));
+          !s.latest_version ? '请先点击「检查更新」'
+          : s.has_update
+            ? (readySame ? ('立即安装 v' + s.latest_version + ' 并重启服务')
+                         : ('一键下载并安装 v' + s.latest_version + '（自动完成）'))
+            : ('重新安装当前版本 v' + s.latest_version + '（修复异常，版本不变）'));
         _updBox._setBtn(ckBtn, true, '');
       }
       _updBox.querySelector('[data-qy-upd-auto]').checked = !!s.autoupdate;
@@ -829,40 +836,57 @@
     if (_updBusy || _updDownloading || _updChecking) return;
     if (!_updState || !_updState.latest_version) { toast('请先点击「检查更新」'); return; }
     var ver = _updState.latest_version;
-    var needDl = !_updState.downloaded;
-    if (!confirm(needDl
-        ? ('将自动下载并安装 v' + ver + '，安装期间服务会短暂重启，确认继续？')
-        : ('确认安装 v' + ver + '？服务将重启。'))) return;
+    var upgrading = !!_updState.has_update;
+    var action = upgrading ? '立即更新' : '重新安装';
+    // 只有磁盘上已有同版本安装包才跳过下载；旧版本残留包一律重新下载
+    var needDl = _updState.downloaded_version !== ver;
+    var tip;
+    if (upgrading && needDl) {
+      tip = '将自动下载并安装 v' + ver + '（升级），安装期间服务会短暂重启，确认继续？';
+    } else if (upgrading) {
+      tip = '确认安装新版本 v' + ver + '？服务将重启。';
+    } else if (needDl) {
+      tip = '当前已是最新版本 v' + ver + '。\n将重新下载并安装同一版本（用于修复程序异常，版本不会变化），安装期间服务会短暂重启，确认继续？';
+    } else {
+      tip = '当前已是最新版本 v' + ver + '。\n将使用已下载的安装包重新安装（修复异常，版本不变），服务将重启，确认继续？';
+    }
+    if (!confirm(tip)) return;
     _updBusy = true;
     var msg = _updBox.querySelector('[data-qy-upd-msg]');
     [
       _updBox.querySelector('[data-qy-upd-check]'),
       _updBox.querySelector('[data-qy-upd-dl]'),
       _updBox.querySelector('[data-qy-upd-install]')
-    ].forEach(function (b) { _updBox._setBtn(b, false, '更新进行中…'); });
+    ].forEach(function (b) { _updBox._setBtn(b, false, action + '进行中…'); });
     function phase(t) { msg.textContent = t; }
     var chain;
     if (needDl) {
-      phase('正在下载 v' + ver + ' 安装包到 NAS（约 28MB），请耐心等待…');
-      toast('正在下载更新包…');
+      phase((upgrading ? '正在下载 v' : '正在重新下载 v') + ver + ' 安装包到 NAS（约 28MB），请耐心等待…');
+      toast((upgrading ? '正在下载更新包…' : '正在重新下载当前版本安装包…'));
       chain = updApi('/api/extra/update/download', { method: 'POST' })
         .then(function () {
-          phase('下载完成，正在安装，服务即将重启…');
-          toast('下载完成，开始安装…');
+          phase(upgrading ? '下载完成，正在安装，服务即将重启…' : '下载完成，正在重新安装，服务即将重启…');
+          toast('下载完成，开始' + action + '…');
         })
-        .then(function () { return updApi('/api/extra/update/install', { method: 'POST' }); });
+        .then(function () {
+          return updApi('/api/extra/update/install', {
+            method: 'POST', body: JSON.stringify({ expected_version: ver })
+          });
+        });
     } else {
-      phase('正在安装 v' + ver + '，服务即将重启…');
-      chain = updApi('/api/extra/update/install', { method: 'POST' });
+      phase((upgrading ? '正在安装 v' : '正在重新安装 v') + ver + '，服务即将重启…');
+      chain = updApi('/api/extra/update/install', {
+        method: 'POST', body: JSON.stringify({ expected_version: ver })
+      });
     }
     chain.then(function () {
-      phase('更新完成，服务重启中，页面将自动刷新…');
-      toast('更新完成，等待服务重启…');
+      phase(action + '完成，服务重启中，页面将自动刷新…');
+      toast(action + '完成，等待服务重启…');
       setTimeout(function () { location.reload(); }, 8000);
     }).catch(function (err) {
       _updBusy = false;
-      phase('更新失败：' + err.message);
-      toast('更新失败：' + err.message);
+      phase(action + '失败：' + err.message);
+      toast(action + '失败：' + err.message);
       updRefresh();
     });
     updSchedulePoll();

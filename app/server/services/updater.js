@@ -358,17 +358,43 @@ async function downloadToNas(asset, destDir) {
     }
 }
 
+function listDownloaded() {
+    var arch = detectArch();
+    var out = [];
+    try {
+        fs.readdirSync(UPDATE_DIR).forEach(function (n) {
+            var m = /^qyread-(\d+\.\d+\.\d+)-[^-]+\.fpk$/.exec(n);
+            if (m && n.indexOf('-' + arch + '.fpk') !== -1) {
+                out.push({ name: n, path: path.join(UPDATE_DIR, n), version: m[1] });
+            }
+        });
+    } catch (e) {}
+    return out;
+}
+
 function downloadedPath() {
     var f = _status.downloaded_file;
     if (f && fs.existsSync(f)) return f;
-    try {
-        var arch = detectArch();
-        var files = fs.readdirSync(UPDATE_DIR).filter(function (n) {
-            return /qyread-.*-.*\.fpk$/.test(n) && n.indexOf('-' + arch + '.fpk') !== -1;
-        });
-        if (files.length) return path.join(UPDATE_DIR, files.sort().pop());
-    } catch (e) {}
-    return '';
+    var files = listDownloaded();
+    if (!files.length) return '';
+    // 取版本号最高的一个（兼容历史的“任意包”调用方）
+    files.sort(function (a, b) { return isNewer(b.version, a.version) ? 1 : -1; });
+    return files[0].path;
+}
+
+// 精确查找指定版本的安装包（避免最新版重装时误用磁盘残留的旧版本包）
+function downloadedPathForVersion(ver) {
+    if (!ver) return downloadedPath();
+    var hit = listDownloaded().filter(function (x) { return x.version === String(ver); })[0];
+    return hit ? hit.path : '';
+}
+
+// 已下载包的版本号（无包返回 ''）
+function downloadedVersion() {
+    var f = downloadedPath();
+    if (!f) return '';
+    var m = /qyread-(\d+\.\d+\.\d+)-/.exec(path.basename(f));
+    return m ? m[1] : '';
 }
 
 // ---- 安装 ----
@@ -517,9 +543,9 @@ async function runAutoUpdate() {
             log('auto-update abort: no fpk asset for arch ' + info.arch);
             return;
         }
-        // 已下载过同一版本的安装包则直接复用，避免重复下载
-        var fpk = downloadedPath();
-        if (!fpk || fpk.indexOf(info.latest) === -1) {
+        // 已下载过同一版本的安装包则直接复用，避免重复下载/误用旧包
+        var fpk = downloadedPathForVersion(info.latest);
+        if (!fpk) {
             _autoPhase = 'downloading';
             log('auto-update: downloading ' + info.asset.name);
             var dr = await downloadToNas(info.asset);
@@ -578,6 +604,7 @@ function startAutoCheck() {
 
 function getStatus() {
     var dp = downloadedPath();
+    var dv = downloadedVersion();
     return {
         current_version: getCurrentVersion(),
         arch: detectArch(),
@@ -585,6 +612,7 @@ function getStatus() {
         has_update: _status.has_update || (_cache ? _cache.has_update : false),
         downloaded: !!dp,
         downloaded_file: dp,
+        downloaded_version: dv,
         downloading: _status.downloading,
         installing: _installing,
         auto_running: _autoRunning,
@@ -601,5 +629,5 @@ log('updater loaded, APPNAME=' + APPNAME + ' PKGVAR=' + PKGVAR + ' APPDEST=' + A
 module.exports = {
     detectArch, getCurrentVersion, check, downloadToNas, installFpk, installPackage,
     runAutoUpdate, restart, startAutoCheck, getStatus, loadConfig, saveConfig,
-    downloadedPath, UPDATE_DIR
+    downloadedPath, downloadedPathForVersion, downloadedVersion, UPDATE_DIR
 };
