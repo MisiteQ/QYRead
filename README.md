@@ -1,7 +1,7 @@
 # 惬意阅读 QYRead
 
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.9-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.10-blue">
   <img alt="fnOS" src="https://img.shields.io/badge/fnOS-x86%20%7C%20arm64-success">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-orange">
 </p>
@@ -10,7 +10,7 @@
 
 > **本项目基于「落地长安 轻阅读」改造**，小说搜索下载模块整合了 [zsyo/go-novel](https://github.com/zsyo/go-novel) 的书源与爬虫逻辑，在此感谢两位作者的开源分享。
 
-- 当前版本：**v0.1.9**
+- 当前版本：**v0.1.10**
 - 作者：**Misite齊**
 - 适用平台：fnOS **x86 + arm64**（依赖应用中心的 Node.js v22，最低系统版本 1.1.8）
 - 默认端口：**8344**（安装向导可改）
@@ -36,7 +36,7 @@ https://github.com/MisiteQ/FnDepot
 
 ### 方式二：手动安装 FPK
 
-1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.9-x86.fpk`（x86 机型）或 `qyread-0.1.9-arm.fpk`（arm64 机型）
+1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.10-x86.fpk`（x86 机型）或 `qyread-0.1.10-arm.fpk`（arm64 机型）
 2. 飞牛 OS → **应用中心** → 左下角 **手动安装** → 选择 fpk 文件
 3. 按安装向导完成配置：
    - **端口与管理员**：应用端口（默认 **8344**）、管理员用户名与密码
@@ -58,7 +58,7 @@ https://github.com/MisiteQ/FnDepot
 ```powershell
 # 打包前先在 Linux 环境（或 WSL / fnOS）安装服务端依赖（sqlite3 为 Linux 原生模块）：
 #   cd app/server && npm install --omit=dev
-.\build.ps1                 # 自动 patch +1（0.1.9 → 0.1.10），同步 manifest / package.json / 前端 ?v=
+.\build.ps1                 # 自动 patch +1（0.1.10 → 0.1.11），同步 manifest / package.json / 前端 ?v=
 .\build.ps1 -Version 0.2.0  # 指定版本号
 .\build.ps1 -NoBump         # 不修改版本号，按 manifest 当前版本打包
 # 产物：qyread-<版本>-x86.fpk 与 qyread-<版本>-arm.fpk
@@ -114,6 +114,7 @@ build.ps1               Windows 双架构一键打包脚本
 
 | 版本 | 内容 |
 |---|---|
+| v0.1.10 | 彻底修复「我的」页点击顶部用户卡片仍跳转已下线的成就页并报 s.map is not a function（改用文本节点遍历定位 + document 捕获阶段常驻拦截，React 重渲染也能拦住），右侧箭头同步隐藏 |
 | v0.1.9 | 修复书架「详细列表」视图书籍信息不显示（文件名带 .epub/.txt 扩展名与页面显示名匹配失败）；列表视图不再显示封面缩略图；移除调试日志 |
 | v0.1.5 | 下载任务支持暂停 / 继续 / 取消；书源卡死幽灵任务根治（60 秒无心跳判失败 + 刷新页面主动回收）；详细列表补充作者 / 章节 / 进度；修复「我的」页用户卡片点击报错；关于页新增上游致谢；修复升级后 NAS 桌面图标不刷新 |
 | v0.1.4 | 修复「语音配置」点击报错；听书默认 Edge 在线引擎；关于页版本号自动同步；小说搜索显式下载按钮；阅读自动入架；书架四种视图正式可用 |

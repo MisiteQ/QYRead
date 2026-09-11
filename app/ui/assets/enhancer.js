@@ -1,4 +1,4 @@
-/*! 惬意阅读 壳层增强（v0.1.9）
+/*! 惬意阅读 壳层增强（v0.1.10）
  *  前端 bundle 为编译产物，所有增强均通过 DOM 观察外挂实现，不侵入 React 状态。
  *  功能：① 内容宽度滑块 ② 详情页读后感按钮 ③ 书架视图切换（大/中/小/列表，列表带书籍信息）
  *       ④ 阅读器外壳主题跟随 ⑤ 管理中心 AI/成就 tab 容器移除
@@ -534,30 +534,52 @@
       '[data-qy-profile]:active{transform:none!important}';
     document.documentElement.appendChild(st);
   })();
+  // 判断一个元素是不是“我的”页顶部的用户大卡片：
+  // 类名带 rounded-[20px] + justify-between，且卡片文本里含“已阅读 N 分钟”。
+  function isProfileCard(el) {
+    if (!el || el.nodeType !== 1) return false;
+    var cn = el.className || '';
+    if (typeof cn !== 'string') cn = (el.getAttribute('class') || '');
+    if (cn.indexOf('rounded-[20px]') === -1 || cn.indexOf('justify-between') === -1) return false;
+    return /已阅读\s*\d+/.test(el.textContent || '');
+  }
+  // 双保险：document 捕获阶段一次性常驻监听，点击时实时识别并拦截，
+  // 不依赖扫描标记时机，React 重渲染换了节点也照样拦住（先于 React 根节点的合成事件）。
+  document.addEventListener('click', function (e) {
+    var node = e.target;
+    for (var i = 0; i < 8 && node && node !== document.body; i++) {
+      if (node.nodeType === 1 && node.hasAttribute && node.hasAttribute('data-qy-profile')) {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+        return;
+      }
+      if (node.nodeType === 1 && isProfileCard(node)) {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+        return;
+      }
+      node = node.parentElement;
+    }
+  }, true);
   function neutralizeProfileCard() {
-    // 卡片特征：内含“已阅读 X 分钟”文本，外层是 rounded-[20px] p-5 的可点击大卡片
-    var spans = document.getElementsByTagName('span');
-    for (var i = 0; i < spans.length; i++) {
-      var sp = spans[i];
-      if (sp.getAttribute('data-qy-pmark')) continue;
-      var tx = (sp.textContent || '').trim();
-      if (!/^已阅读\s*\d+/.test(tx) || sp.children.length > 0) continue;
-      var card = sp, found = null;
+    // 用 TreeWalker 找“已阅读 N…”文本节点（它可能在 span/div 内，且可能有兄弟元素，不能只查 span）
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+    var n, hits = [];
+    while ((n = walker.nextNode())) {
+      if (/已阅读\s*\d+/.test(n.nodeValue || '')) hits.push(n);
+    }
+    hits.forEach(function (textNode) {
+      var card = textNode.parentElement, found = null;
       for (var k = 0; k < 6 && card; k++) {
         card = card.parentElement;
-        var cn = card && (card.className || '');
-        if (cn.indexOf('rounded-[20px]') !== -1 && cn.indexOf('p-5') !== -1 &&
-            cn.indexOf('justify-between') !== -1) { found = card; break; }
+        if (card && isProfileCard(card)) { found = card; break; }
       }
-      sp.setAttribute('data-qy-pmark', '1');
-      if (!found || found.getAttribute('data-qy-profile')) continue;
+      if (!found || found.getAttribute('data-qy-profile')) return;
       found.setAttribute('data-qy-profile', '1');
-      // 捕获阶段截断，事件到不了 React 根委托节点
+      // 卡片自身再绑一道捕获拦截（document 级监听之外的冗余保险）
       found.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); }, true);
-      // 右侧 “>” 箭头一并隐藏
+      // 右侧 “>” 箭头（bundle 里是 w-5 h-5 的 svg）一并隐藏
       var chev = found.lastElementChild;
-      if (chev && chev.tagName === 'svg') chev.style.setProperty('display', 'none', 'important');
-    }
+      if (chev && chev.tagName === 'SVG') chev.style.setProperty('display', 'none', 'important');
+    });
   }
 
   /* ===================== 4d. 关于页：致谢上游项目 ===================== */
