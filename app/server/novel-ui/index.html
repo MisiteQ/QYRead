@@ -79,6 +79,35 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Micr
 .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 20px;border-radius:24px;font-size:14px;z-index:300;animation:fadein .3s;max-width:90vw;text-align:center;white-space:pre-line;line-height:1.5}
 @keyframes fadein{from{opacity:0;transform:translate(-50%,10px)}}
 
+/* 下载源设置 */
+.src-bar{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-bottom:10px;font-size:12px;flex-wrap:wrap}
+.src-bar .cur{flex:1;min-width:120px;color:var(--sub)}
+.src-bar button{padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--accent);font-size:12px;cursor:pointer;white-space:nowrap}
+.src-tip{padding:10px 12px;background:var(--accent-bg);border:1px solid var(--accent);border-radius:10px;font-size:11px;color:var(--accent);margin-bottom:12px;line-height:1.6}
+.src-list{display:flex;flex-direction:column;gap:8px}
+.src-item{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 14px;display:flex;align-items:center;gap:10px}
+.src-item .meta{flex:1;min-width:0}
+.src-item .name{font-size:14px;font-weight:600;word-break:break-all}
+.src-item .name .badge{display:inline-block;font-size:10px;padding:1px 6px;background:var(--accent-bg);color:var(--accent);border-radius:4px;margin-left:6px;font-weight:400;vertical-align:middle}
+.src-item .name .badge.off{background:var(--border);color:var(--sub)}
+.src-item .name .badge.proxy{background:#fef3c7;color:#92400e}
+.src-item .sub{font-size:11px;color:var(--sub);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.src-item .ops{display:flex;gap:6px;flex-shrink:0}
+.src-item .ops button{padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:transparent;font-size:12px;cursor:pointer}
+.src-item .ops .edit{color:var(--accent)}
+.src-item .ops .del{color:var(--err)}
+/* 书源编辑弹窗表单 */
+.src-form-row{margin-bottom:12px}
+.src-form-row label{display:block;font-size:13px;font-weight:600;margin-bottom:5px;color:var(--text)}
+.src-form-row label small{font-weight:400;color:var(--sub);font-size:11px}
+.src-form-row select{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;outline:none}
+.src-form-row textarea{width:100%;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:12px;line-height:1.5;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);outline:none;resize:vertical;min-height:240px;white-space:pre;overflow:auto}
+.src-form-row textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.src-format-doc{margin-top:4px}
+.src-format-doc details{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+.src-format-doc summary{font-size:12px;color:var(--accent);cursor:pointer;font-weight:600}
+.src-format-doc pre{font-size:11px;line-height:1.6;color:var(--sub);white-space:pre-wrap;margin-top:8px;overflow-x:auto}
+
 /* 全局下载任务面板 */
 .task-dock{position:fixed;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));max-width:900px;margin:0 auto;background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.18);z-index:200;display:none;overflow:hidden}
 .task-dock.show{display:block}
@@ -145,6 +174,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Micr
   <div class="tabs">
     <div class="tab active" data-tab="search">🔍 搜索下载</div>
     <div class="tab" data-tab="local">📚 已下载</div>
+    <div class="tab" data-tab="sources">⚙️ 下载源设置</div>
   </div>
 
   <div id="view-search">
@@ -171,6 +201,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Micr
     <div id="local-list" class="local-list"></div>
   </div>
 
+  <div id="view-sources" style="display:none">
+    <div class="src-bar">
+      <span class="cur" id="srcCount">共 0 个书源</span>
+      <button id="srcAddBtn">➕ 添加新源</button>
+      <button id="srcRefreshBtn">🔄 刷新</button>
+    </div>
+    <div class="src-tip">⚠️ 下载源采用 <b>go-novel 兼容的 JSON 规则格式</b>，包含 search/book/toc/chapter 等字段（CSS 选择器）。修改请谨慎，错误规则会导致搜索/下载失败。</div>
+    <div id="src-list" class="src-list"></div>
+  </div>
+
   <a class="back-to-read" href="/">返回阅读书架</a>
 </div>
 
@@ -192,6 +232,95 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Micr
     <div class="m-foot" id="dirModalFoot">
       <button id="dirCancel">取消</button>
       <button class="primary" id="dirUse">使用此文件夹</button>
+    </div>
+  </div>
+</div>
+
+<!-- 书源编辑弹窗（go-novel JSON 规则） -->
+<div class="modal-mask" id="srcModal">
+  <div class="modal" style="max-width:680px">
+    <div class="m-head"><b id="srcModalTitle">编辑书源</b><button id="srcModalClose">✕</button></div>
+    <div class="m-body" id="srcModalBody">
+      <div class="src-form-row">
+        <label>分类</label>
+        <select id="srcCategory">
+          <option value="main">main（普通可搜索书源）</option>
+          <option value="flowlimit">flowlimit（限流书源，含 crawl 字段）</option>
+          <option value="non-searchable">non-searchable（仅按 URL 下载，不可搜索）</option>
+          <option value="proxy">proxy（需代理访问）</option>
+        </select>
+      </div>
+      <div class="src-form-row">
+        <label>规则 JSON <small>（go-novel 兼容格式，id 由系统分配，无需填写）</small></label>
+        <textarea id="srcRuleText" rows="20" spellcheck="false" placeholder='在此粘贴/编辑 go-novel 规则 JSON&#10;示例：{"name":"示例小说","url":"https://example.com/","language":"zh_CN","search":{...},"book":{...},"toc":{...},"chapter":{...}}'></textarea>
+      </div>
+      <div class="src-format-doc">
+        <details>
+          <summary>📖 下载源格式说明（点击展开）</summary>
+          <pre>{
+  "name": "书源名称",
+  "url": "书源首页 URL",
+  "language": "zh_CN",
+  "comment": "备注（可空）",
+  "search": {              // 搜索规则，disabled:true 表示不可搜索
+    "url": "搜索接口地址，%s 为关键词占位符",
+    "method": "post 或 get",
+    "data": "{searchkey: %s}",   // post 时的表单数据
+    "cookies": "k=v; k=v",      // 可选
+    "result": "CSS 选择器（搜索结果列表项）",
+    "bookName": "CSS 选择器（书名，取 href 作为 bookUrl）",
+    "author": "CSS 选择器（作者）",
+    "category": "CSS 选择器（分类，可选）",
+    "latestChapter": "CSS 选择器（最新章节，可选）",
+    "lastUpdateTime": "CSS 选择器（更新时间，可选）",
+    "wordCount": "CSS 选择器（字数，可选）",
+    "status": "CSS 选择器（连载状态，可选）",
+    "intro": "CSS 选择器（简介，可选）",
+    "pagination": true,         // 是否分页，可选
+    "nextPage": "CSS 选择器（下一页链接，可选）"
+  },
+  "book": {                // 书籍详情页元数据规则
+    "url": "详情页 URL 正则（可选，用于匹配）",
+    "bookName": "meta[property=\"og:novel:book_name\"]",
+    "author": "meta[property=\"og:novel:author\"]",
+    "intro": "meta[property=\"og:description\"]",
+    "category": "meta[property=\"og:novel:category\"]",
+    "coverUrl": "meta[property=\"og:image\"]",
+    "latestChapter": "meta[property=\"og:novel:latest_chapter_name\"]",
+    "lastUpdateTime": "meta[property=\"og:novel:update_time\"]",
+    "status": "meta[property=\"og:novel:status\"]"
+  },
+  "toc": {                 // 目录规则
+    "url": "目录页 URL 模板，%s 为书籍 ID（可选）",
+    "item": "CSS 选择器（章节链接列表项）",
+    "isDesc": false,          // 是否倒序（可选）
+    "pagination": true,       // 是否分页（可选）
+    "nextPage": "CSS 选择器（下一页，可选）"
+  },
+  "chapter": {             // 正文规则
+    "title": "CSS 选择器（章节标题）",
+    "content": "CSS 选择器（正文容器）",
+    "paragraphTagClosed": true,   // 段落是否闭合标签（true: p 标签；false: br 分隔）
+    "paragraphTag": "<br>+",      // 段落分隔（仅 closed:false 时生效，可选）
+    "filterTxt": "需要过滤的正文文本正则，多个用 | 分隔",
+    "filterTag": "需要移除的标签名，空格分隔",
+    "pagination": true,           // 章节分页（可选）
+    "nextPage": "CSS 选择器（下一页，可选）"
+  },
+  "crawl": {               // 仅 flowlimit/proxy 分类使用，限流配置
+    "threads": 4,
+    "minInterval": 200,
+    "maxInterval": 400
+  }
+}
+// 字段值支持 "selector@js:code" 形式做后处理
+// meta[property=...] 取 content 属性；a 元素取 href</pre>
+        </details>
+      </div>
+    </div>
+    <div class="m-foot show" id="srcModalFoot">
+      <button id="srcCancel">取消</button>
+      <button class="primary" id="srcSave">保存</button>
     </div>
   </div>
 </div>
@@ -702,6 +831,148 @@ async function openDownloadDir(){
   }catch(e){ toast('操作失败: '+e.message); }
 }
 
+/* ============ 下载源管理 ============ */
+let srcData = [];          // 最近一次拉取的完整书源列表
+let editingSrc = null;     // 当前正在编辑的源（null=新增模式；非空=编辑模式，含 category+id）
+
+async function loadSources(){
+  const box = $('src-list');
+  $('srcCount').textContent = '加载中...';
+  box.innerHTML = '<div class="loading"><span class="spin"></span>加载中...</div>';
+  try{
+    const data = await api('/sources');
+    srcData = data.sources || [];
+    renderSrcList(srcData);
+  }catch(e){
+    box.innerHTML = '<div class="empty" style="padding:24px">加载失败：'+esc(e.message)+'</div>';
+    $('srcCount').textContent = '加载失败';
+  }
+}
+
+function srcBadges(s){
+  const badges = [];
+  if(s.category==='proxy') badges.push('<span class="badge proxy">代理</span>');
+  if(s.category==='flowlimit') badges.push('<span class="badge">限流</span>');
+  if(s.category==='non-searchable') badges.push('<span class="badge off">不可搜索</span>');
+  else if(s.searchable) badges.push('<span class="badge">可搜索</span>');
+  else badges.push('<span class="badge off">不可搜索</span>');
+  if(s.needProxy) badges.push('<span class="badge proxy">需代理</span>');
+  return badges.join('');
+}
+
+function renderSrcList(list){
+  $('srcCount').textContent = '共 '+list.length+' 个书源';
+  const box = $('src-list');
+  if(!list.length){
+    box.innerHTML = '<div class="empty" style="padding:24px">暂无书源，点击「添加新源」开始</div>';
+    return;
+  }
+  box.innerHTML = list.map((s,i)=>{
+    const sub = [
+      'ID: '+s.id,
+      s.language||'',
+      s.url ? ('URL: '+s.url) : '',
+      s.comment ? ('备注: '+s.comment) : ''
+    ].filter(Boolean).join(' · ');
+    return `<div class="src-item">
+      <div class="meta">
+        <div class="name">${esc(s.name||'(未命名)')}${srcBadges(s)}</div>
+        <div class="sub">${esc(sub)}</div>
+      </div>
+      <div class="ops">
+        <button class="edit" data-src-edit="${i}">✏ 编辑</button>
+        <button class="del" data-src-del="${i}">🗑 删除</button>
+      </div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-src-edit]').forEach(b=>{
+    b.onclick = ()=>openSrcEditor(srcData[Number(b.dataset.srcEdit)]);
+  });
+  box.querySelectorAll('[data-src-del]').forEach(b=>{
+    b.onclick = ()=>delSrc(srcData[Number(b.dataset.srcDel)]);
+  });
+}
+
+function openSrcEditor(src){
+  editingSrc = src || null;
+  $('srcModalTitle').textContent = src ? '编辑书源' : '新增书源';
+  $('srcCategory').value = src ? src.category : 'main';
+  // 编辑时回填完整规则（剔除运行时附加字段），新增时给一个空模板
+  let ruleObj;
+  if(src){
+    ruleObj = {};
+    for(const k of Object.keys(src)){
+      if(k!=='category' && k!=='searchable' && k!=='needProxy') ruleObj[k] = src[k];
+    }
+  } else {
+    ruleObj = { name:'', url:'', language:'zh_CN', comment:'', search:{}, book:{}, toc:{}, chapter:{} };
+  }
+  $('srcRuleText').value = JSON.stringify(ruleObj, null, 2);
+  $('srcModal').classList.add('show');
+  // 弹窗打开后让 textarea 滚回顶部
+  setTimeout(()=>{ const ta=$('srcRuleText'); if(ta) ta.scrollTop=0; }, 0);
+}
+
+function closeSrcModal(){
+  $('srcModal').classList.remove('show');
+  editingSrc = null;
+}
+
+async function saveSrc(){
+  const category = $('srcCategory').value;
+  let rule;
+  try{
+    rule = JSON.parse($('srcRuleText').value || '{}');
+  }catch(e){
+    toast('JSON 解析失败：'+e.message); return;
+  }
+  if(!rule || typeof rule!=='object' || Array.isArray(rule)){
+    toast('规则必须为 JSON 对象'); return;
+  }
+  if(!rule.name || typeof rule.name!=='string'){
+    toast('规则缺少 name 字段（书源名称）'); return;
+  }
+  // 保存按钮置灰防重复提交
+  const saveBtn = $('srcSave');
+  saveBtn.disabled = true;
+  const oldText = saveBtn.textContent;
+  saveBtn.textContent = '保存中...';
+  try{
+    if(editingSrc){
+      // 编辑模式：跨分类移动时传 newCategory
+      const isMove = editingSrc.category !== category;
+      const payload = { rule };
+      if(isMove) payload.newCategory = category;
+      await api('/sources/'+encodeURIComponent(editingSrc.category)+'/'+encodeURIComponent(editingSrc.id), {
+        method:'PUT', body: JSON.stringify(payload)
+      });
+      toast('已更新');
+    } else {
+      await api('/sources', { method:'POST', body: JSON.stringify({ category, rule }) });
+      toast('已新增');
+    }
+    closeSrcModal();
+    await loadSources();
+  }catch(e){
+    toast('保存失败：'+e.message);
+  }finally{
+    saveBtn.disabled = false;
+    saveBtn.textContent = oldText;
+  }
+}
+
+async function delSrc(src){
+  if(!src){ return; }
+  if(!confirm('确定删除书源「'+(src.name||'')+'」吗？\n删除后该源将无法继续搜索/下载，相关规则文件立即保存到磁盘。')) return;
+  try{
+    await api('/sources/'+encodeURIComponent(src.category)+'/'+encodeURIComponent(src.id), { method:'DELETE' });
+    toast('已删除');
+    await loadSources();
+  }catch(e){
+    toast('删除失败：'+e.message);
+  }
+}
+
 /* ============ 事件绑定 ============ */
 $('searchBtn').onclick = doSearch;
 $('kw').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
@@ -716,9 +987,17 @@ document.querySelectorAll('.tab').forEach(t=>{
     const tab=t.dataset.tab;
     $('view-search').style.display = tab==='search'?'':'none';
     $('view-local').style.display = tab==='local'?'':'none';
+    $('view-sources').style.display = tab==='sources'?'':'none';
     if(tab==='local'){ if(!localDir && dirsInfo) localDir = saveDir || dirsInfo.defaultDir; loadLocal(); }
+    if(tab==='sources'){ loadSources(); }
   };
 });
+$('srcRefreshBtn').onclick = loadSources;
+$('srcAddBtn').onclick = ()=>openSrcEditor(null);
+$('srcModalClose').onclick = closeSrcModal;
+$('srcCancel').onclick = closeSrcModal;
+$('srcSave').onclick = saveSrc;
+$('srcModal').addEventListener('click', e=>{ if(e.target.id==='srcModal') closeSrcModal(); });
 $('dockHead').onclick = ()=>{ $('taskDock').classList.toggle('open'); renderDock(); };
 $('dirModalClose').onclick = closeDirModal;
 $('dirCancel').onclick = ()=>{ if(browseMode){ browseMode=false; renderDirCandidates(); } else closeDirModal(); };

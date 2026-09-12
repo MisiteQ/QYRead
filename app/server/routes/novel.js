@@ -52,18 +52,66 @@ router.get('/page', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'novel-ui', 'index.html'));
 });
 
-// 列出所有书源
+// 列出所有书源（带分类，供管理 UI 增删改查）
 router.get('/sources', (req, res) => {
-    const all = rules.getAllSources().map(s => ({
+    const all = rules.listAllWithCategory().map(s => ({
         id: s.id,
+        category: s.category,
         name: s.name,
         url: s.url,
         language: s.language,
         comment: s.comment,
         searchable: !!(s.search && !s.search.disabled),
-        needProxy: rules.needsProxy(s.id),
+        needProxy: s.category === 'proxy' || rules.needsProxy(s.id),
     }));
     res.json({ sources: all });
+});
+
+// 获取单个书源完整规则（go-novel JSON 格式）
+router.get('/sources/:category/:id', authenticateToken, (req, res) => {
+    const s = rules.getSourceDetail(req.params.category, req.params.id);
+    if (!s) return res.status(404).json({ error: '书源不存在' });
+    res.json({ source: s });
+});
+
+// 新增书源；body: { category, rule }，rule 为 go-novel 规则对象
+router.post('/sources', authenticateToken, (req, res) => {
+    const { category, rule } = req.body || {};
+    if (!category || !rule || typeof rule !== 'object') {
+        return res.status(400).json({ error: '需要 category 和 rule' });
+    }
+    try {
+        const created = rules.addSource(category, rule);
+        res.json({ source: created });
+    } catch (e) {
+        res.status(400).json({ error: '新增失败: ' + e.message });
+    }
+});
+
+// 更新书源；body: { rule, newCategory? }，newCategory 用于跨分类移动
+router.put('/sources/:category/:id', authenticateToken, (req, res) => {
+    const { category, id } = req.params;
+    const { rule, newCategory } = req.body || {};
+    if (!rule || typeof rule !== 'object') {
+        return res.status(400).json({ error: '需要 rule' });
+    }
+    try {
+        const updated = rules.updateSource(category, id, rule, newCategory);
+        res.json({ source: updated });
+    } catch (e) {
+        res.status(400).json({ error: '更新失败: ' + e.message });
+    }
+});
+
+// 删除书源
+router.delete('/sources/:category/:id', authenticateToken, (req, res) => {
+    const { category, id } = req.params;
+    try {
+        rules.deleteSource(category, id);
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(400).json({ error: '删除失败: ' + e.message });
+    }
 });
 
 // 可选下载目录：应用默认目录 + 用户可访问的书库 + 存储盘根

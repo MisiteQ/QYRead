@@ -1,7 +1,7 @@
 # 惬意阅读 QYRead
 
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.19-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.20-blue">
   <img alt="fnOS" src="https://img.shields.io/badge/fnOS-x86%20%7C%20arm64-success">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-orange">
 </p>
@@ -10,7 +10,7 @@
 
 > **本项目基于「落地长安 轻阅读」改造**，小说搜索下载模块整合了 [zsyo/go-novel](https://github.com/zsyo/go-novel) 的书源与爬虫逻辑，在此感谢两位作者的开源分享。
 
-- 当前版本：**v0.1.19**
+- 当前版本：**v0.1.20**
 - 作者：**Misite齊**
 - 适用平台：fnOS **x86 + arm64**（依赖应用中心的 Node.js v22，最低系统版本 1.1.8）
 - 默认端口：**8344**（安装向导可改）
@@ -38,7 +38,7 @@ https://github.com/MisiteQ/FnDepot
 
 ### 方式二：手动安装 FPK
 
-1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.19-x86.fpk`（x86 机型）或 `qyread-0.1.19-arm.fpk`（arm64 机型）
+1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.20-x86.fpk`（x86 机型）或 `qyread-0.1.20-arm.fpk`（arm64 机型）
 2. 飞牛 OS → **应用中心** → 左下角 **手动安装** → 选择 fpk 文件
 3. 按安装向导完成配置：
    - **端口与管理员**：应用端口（默认 **8344**）、管理员用户名与密码
@@ -62,7 +62,7 @@ https://github.com/MisiteQ/FnDepot
 ```powershell
 # 打包前先在 Linux 环境（或 WSL / fnOS）安装服务端依赖（sqlite3 为 Linux 原生模块）：
 #   cd app/server && npm install --omit=dev
-.\build.ps1                 # 自动 patch +1（0.1.19 → 0.1.20），同步 manifest / package.json / 前端 ?v=
+.\build.ps1                 # 自动 patch +1（0.1.20 → 0.1.21），同步 manifest / package.json / 前端 ?v=
 .\build.ps1 -Version 0.2.0  # 指定版本号
 .\build.ps1 -NoBump         # 不修改版本号，按 manifest 当前版本打包
 # 产物：qyread-<版本>-x86.fpk 与 qyread-<版本>-arm.fpk
@@ -118,6 +118,7 @@ build.ps1               Windows 双架构一键打包脚本
 
 | 版本 | 内容 |
 |---|---|
+| v0.1.20 | 小说下载界面新增「下载源设置」管理页（第三个 tab），可在线管理 go-novel 兼容规则书源：浏览全部书源并按分类（普通 / 限流 / 不可搜索 / 代理）显示徽章，可视化编辑规则 JSON（含 search / book / toc / chapter / crawl 字段格式说明），支持新增、编辑、删除、跨分类移动书源，改动即时写回规则文件并重建搜索 / 下载索引 |
 | v0.1.19 | 优化已是最新版时「立即更新」的体验：按钮直接显示为「重新安装」，确认弹窗明确提示「当前已是最新版、重新安装同版本、版本不变、用于修复异常」，与升级场景措辞完全区分；修复潜在隐患——仅当磁盘上存在与目标版本号一致的安装包才直接安装（按版本精确匹配），残留旧版本包不会被误用导致意外降级，状态接口新增已下载包版本号 |
 | v0.1.18 | 修复发现新版本后「立即更新」点不动（原来必须先手动下载）：改为一键完成「下载 → 安装 → 重启」，全程阶段提示、3 秒轮询后台进度、防重复点击；修复勾选「自动检查并安装更新」后不生效（原来要等 6 小时定时周期）：勾选后立即在后台执行检查 / 下载 / 安装，服务启动 60 秒后也会先自动检查一次；手动与自动安装加并发锁互斥；服务自重启改为 `bash cmd/main restart`（多候选路径，不依赖脚本可执行位） |
 | v0.1.17 | 关于页调整板块顺序（简介 → 作者 → 软件更新 → 致谢 → 版权，更新面板移至致谢之前）；最新版本也允许下载安装包（支持重装），下载期间按钮显示「正在下载…」并防重复点击 |
