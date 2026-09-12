@@ -1,4 +1,4 @@
-/*! 惬意阅读 壳层增强（v0.1.19）
+/*! 惬意阅读 壳层增强（v0.1.21）
  *  前端 bundle 为编译产物，所有增强均通过 DOM 观察外挂实现，不侵入 React 状态。
  *  功能：① 内容宽度滑块 ② 详情页读后感按钮 ③ 书架视图切换（大/中/小/列表，列表带书籍信息）
  *       ④ 阅读器外壳主题跟随 ⑤ 管理中心 AI/成就 tab 容器移除
@@ -612,13 +612,32 @@
   }
 
   /* ===================== 4d. 关于页：致谢上游项目 ===================== */
+  function widenAboutContainers(root, box) {
+    // .max-w-sm 默认 24rem(384px) 太窄，加宽到 46rem(736px)。
+    // 同时向上检查父级，若被 max-w-sm/md/lg 等类限制也一并放宽（仅在关于页子树内生效）。
+    var WANTED = '46rem';
+    if (box) box.style.setProperty('max-width', WANTED, 'important');
+    var el = root;
+    var guard = 0;
+    while (el && el !== document.body && guard < 8) {
+      var cls = (el.className && typeof el.className === 'string') ? el.className : '';
+      if (/max-w-(sm|md|lg|xl|2xl|3xl)\b/.test(cls)) {
+        el.style.setProperty('max-width', WANTED, 'important');
+      }
+      el = el.parentElement;
+      guard++;
+    }
+  }
   function injectAboutCredit() {
     var h3s = document.getElementsByTagName('h3');
     for (var i = 0; i < h3s.length; i++) {
       if ((h3s[i].textContent || '').trim() !== '惬意阅读') continue;
       var root = h3s[i].closest ? h3s[i].closest('.p-4') : null;
       var box = root ? root.querySelector('.max-w-sm') : null;
-      if (!box || box.querySelector('[data-qy-credit]')) return;
+      if (!box) return;
+      // 加宽关于页内容容器（每次 scan 都执行，确保 React 重渲染后仍生效）
+      try { widenAboutContainers(root, box); } catch (e) {}
+      if (box.querySelector('[data-qy-credit]')) return;
       var card = document.createElement('div');
       card.setAttribute('data-qy-credit', '1');
       card.className = 'p-4 rounded-xl';

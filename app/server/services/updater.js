@@ -430,7 +430,11 @@ async function installFpk(fpkPath) {
         return { success: false, error: 'fpk 包内缺少 manifest' };
     }
 
-    var bak = APPDEST + '.bak';
+    // 备份目录必须放在 qyread 用户可写的位置（UPDATE_DIR = 数据目录/update）。
+    // 之前备份到 APPDEST + '.bak'（/vol1/@appcenter/qyread.bak），但 qyread 用户
+    // 只拥有 /vol1/@appcenter/qyread，没有上级 /vol1/@appcenter/ 的写权限，
+    // cp 会报 Permission denied。改为放到数据目录下即可避开该限制。
+    var bak = path.join(UPDATE_DIR, 'app.bak');
     try { execSync('rm -rf "' + bak + '"', { stdio: 'ignore' }); } catch (e) {}
     try {
         execSync('cp -a "' + APPDEST + '" "' + bak + '"', { stdio: 'pipe' });
