@@ -5,6 +5,65 @@
 const { JSDOM } = require('jsdom');
 const iconv = require('iconv-lite');
 const { URL } = require('url');
+const http = require('http');
+const https = require('https');
+const proxy = require('./novelProxy');
+
+// 通过 http/https 模块走代理抓取（Node 原生 fetch 不支持 agent，代理场景回退到原生模块）
+// 自行处理 3xx 重定向（原生 http.request 不支持 redirect:'follow'）
+function fetchViaProxy(url, opts, redirects = 0) {
+    return new Promise((resolve, reject) => {
+        const MAX_REDIRECTS = 10;
+        let target;
+        try { target = new URL(url); } catch (e) { return reject(e); }
+        const lib = target.protocol === 'http:' ? http : https;
+        const agent = proxy.getAgent(target.protocol);
+        const headers = Object.assign({}, opts.headers || {});
+        const reqOpts = {
+            method: opts.method || 'GET',
+            hostname: target.hostname,
+            port: target.port || (target.protocol === 'http:' ? 80 : 443),
+            path: target.pathname + target.search,
+            headers,
+            agent: agent || undefined,
+            timeout: opts.timeout || 15000,
+        };
+        const req = lib.request(reqOpts, (res) => {
+            // 处理重定向
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                res.resume(); // 丢弃响应体
+                if (redirects >= MAX_REDIRECTS) {
+                    return reject(new Error('重定向次数过多'));
+                }
+                const nextUrl = new URL(res.headers.location, url).href;
+                // 重定向一律改为 GET
+                return resolve(fetchViaProxy(nextUrl, Object.assign({}, opts, { method: 'GET', data: null }), redirects + 1));
+            }
+            const chunks = [];
+            res.on('data', (c) => chunks.push(c));
+            res.on('end', () => {
+                const buf = Buffer.concat(chunks);
+                resolve({
+                    buffer: buf,
+                    contentType: res.headers['content-type'] || '',
+                    finalUrl: url,
+                });
+            });
+        });
+        req.on('timeout', () => { req.destroy(new Error('请求超时')); });
+        req.on('error', reject);
+        // 外部取消信号（用户取消任务 / 超时）联动中断本次请求
+        if (opts.signal) {
+            const onAbort = () => req.destroy(new Error('请求已取消'));
+            if (opts.signal.aborted) onAbort();
+            else opts.signal.addEventListener('abort', onAbort, { once: true });
+        }
+        if (opts.data && (opts.method || 'GET').toUpperCase() === 'POST') {
+            req.write(opts.data);
+        }
+        req.end();
+    });
+}
 
 // 带编码探测的 HTTP GET
 async function fetchHtml(url, options = {}) {
@@ -27,6 +86,31 @@ async function fetchHtml(url, options = {}) {
             const v = pair.slice(idx + 1).trim();
             return `${encodeURIComponent(k)}=${encodeURIComponent(v)}`;
         }).filter(Boolean).join('&');
+    }
+
+    // 代理启用时走 http/https 模块（支持 proxy agent）；否则走原生 fetch
+    if (proxy.isEnabled()) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeout);
+        const onExternalAbort = () => ctrl.abort();
+        if (externalSignal) {
+            if (externalSignal.aborted) ctrl.abort();
+            else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+        }
+        try {
+            const { buffer, contentType, finalUrl: fu } = await fetchViaProxy(url, {
+                method, data: body, headers, timeout, signal: ctrl.signal,
+            });
+            clearTimeout(timer);
+            if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
+            finalUrl = fu || finalUrl;
+            const html = decodeBuffer(buffer, contentType);
+            return { html, finalUrl };
+        } catch (e) {
+            clearTimeout(timer);
+            if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
+            throw new Error(`请求失败 ${url}: ${e.message}`);
+        }
     }
 
     const ctrl = new AbortController();

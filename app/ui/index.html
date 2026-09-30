@@ -4,16 +4,16 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/icon_64.png" />
     <link rel="apple-touch-icon" href="/icon_192.png" />
-    <link rel="manifest" href="/api/public/pwa-profile?v=0.1.21" crossorigin="use-credentials" />
+    <link rel="manifest" href="/api/public/pwa-profile?v=0.1.24" crossorigin="use-credentials" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="惬意阅读" />
     <title>惬意阅读</title>
-    <script type="module" crossorigin src="/assets/index-bd334e7e.js?v=0.1.21"></script>
-    <link rel="modulepreload" crossorigin href="/assets/vendor-react-4b82aed3.js?v=0.1.21">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-icons-f9b96ac7.js?v=0.1.21">
-    <link rel="stylesheet" href="/assets/index-a1ca2145.css?v=0.1.21">
+    <script type="module" crossorigin src="/assets/index-bd334e7e.js?v=0.1.24"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-react-4b82aed3.js?v=0.1.24">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-icons-f9b96ac7.js?v=0.1.24">
+    <link rel="stylesheet" href="/assets/index-a1ca2145.css?v=0.1.24">
   </head>
   <body>
     <div id="root"></div>
@@ -147,6 +147,27 @@
 
         var POS_KEY = 'qy_novel_btn_pos';
         var M = 12, DRAG_THRESHOLD = 8;
+        var PEEK_DELAY = 2500;   // 静止多久后缩进边缘
+        var curSide = 'right';   // 当前停靠边
+        var peekTimer = null;
+
+        // 取消缩进，完整显示按钮
+        function showFull() {
+          btn.classList.remove('peek', 'peek-left', 'peek-right');
+        }
+        // 启动缩进计时
+        function schedulePeek() {
+          if (peekTimer) clearTimeout(peekTimer);
+          peekTimer = setTimeout(function () {
+            showFull();
+            btn.classList.add('peek', curSide === 'left' ? 'peek-left' : 'peek-right');
+          }, PEEK_DELAY);
+        }
+        // 用户交互：立即完整显示，并重新计时
+        function userInteract() {
+          showFull();
+          schedulePeek();
+        }
 
         var style = document.createElement('style');
         style.textContent =
@@ -156,13 +177,17 @@
           '-webkit-tap-highlight-color:transparent;' +
           'backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);' +
           'background:#fff;color:#2563eb;border:1px solid #dbeafe;' +
-          'transition:left .18s ease,right .18s ease,top .18s ease,filter .15s,opacity .2s;opacity:0;' +
+          'transition:left .18s ease,right .18s ease,top .18s ease,filter .15s,opacity .2s,transform .35s cubic-bezier(.4,0,.2,1);opacity:0;' +
           'animation:qyNovelFloat 3s ease-in-out infinite}' +
           '@keyframes qyNovelFloat{' +
           '0%,100%{transform:translateY(0);box-shadow:0 4px 14px rgba(37,99,235,.22)}' +
           '50%{transform:translateY(-6px);box-shadow:0 10px 22px rgba(37,99,235,.38)}}' +
           '#qy-novel-btn.dragging{animation:none;transition:opacity .2s;opacity:.85;box-shadow:0 8px 20px rgba(0,0,0,.22)}' +
           '#qy-novel-btn:active{filter:brightness(.92)}' +
+          /* 靠边自动缩进：仅露出 6px，点击/悬停时滑出 */
+          '#qy-novel-btn.peek{animation:none}' +
+          '#qy-novel-btn.peek-left{transform:translateX(calc(-100% + 6px))}' +
+          '#qy-novel-btn.peek-right{transform:translateX(calc(100% - 6px))}' +
           '@media (prefers-color-scheme:dark){#qy-novel-btn{background:#2563eb;color:#fff;border-color:#3b82f6}}' +
           '@media (prefers-reduced-motion:reduce){#qy-novel-btn{animation:none;box-shadow:0 4px 14px rgba(0,0,0,.18)}}';
         document.head.appendChild(style);
@@ -186,6 +211,7 @@
         function place(animate) {
           var p = loadPos();
           var side = p.side === 'left' ? 'left' : 'right';
+          curSide = side;
           if (!animate) btn.classList.add('dragging');
           if (side === 'left') {
             btn.style.left = 'max(' + M + 'px, env(safe-area-inset-left))';
@@ -202,6 +228,8 @@
             btn.style.top = 'auto';
           }
           if (!animate) requestAnimationFrame(function () { btn.classList.remove('dragging'); });
+          showFull();
+          schedulePeek();
         }
         place(false);
         requestAnimationFrame(function () { btn.style.opacity = '1'; });
@@ -209,6 +237,8 @@
         var sx, sy, startLeft, startTop, dragging, w, h, moved;
         btn.addEventListener('pointerdown', function (e) {
           if (e.button !== undefined && e.button !== 0) return;
+          showFull();
+          if (peekTimer) { clearTimeout(peekTimer); peekTimer = null; }
           var r = btn.getBoundingClientRect();
           w = r.width; h = r.height;
           sx = e.clientX; sy = e.clientY;
@@ -236,12 +266,14 @@
           if (dragging) {
             var r = btn.getBoundingClientRect();
             var side = (r.left + w / 2) < (window.innerWidth / 2) ? 'left' : 'right';
+            curSide = side;
             var top = clampTop(r.top);
             try { localStorage.setItem(POS_KEY, JSON.stringify({ side: side, top: top })); } catch (err) {}
             btn.classList.remove('dragging');
             btn.style.top = top + 'px';
             if (side === 'left') { btn.style.left = 'max(' + M + 'px, env(safe-area-inset-left))'; btn.style.right = 'auto'; }
             else { btn.style.right = 'max(' + M + 'px, env(safe-area-inset-right))'; btn.style.left = 'auto'; }
+            schedulePeek();
           } else {
             // 短按（未移动到阈值）才跳转；用 btn.clicked 标记避免合成 click 重入
             if (!btn.clicked) { btn.clicked = true; location.href = '/api/novel/page'; }
@@ -250,11 +282,16 @@
         }
         btn.addEventListener('pointerup', endDrag);
         btn.addEventListener('pointercancel', endDrag);
+        // 悬停/聚焦时完整显示，离开后重新计时缩进
+        btn.addEventListener('mouseenter', showFull);
+        btn.addEventListener('mouseleave', schedulePeek);
+        btn.addEventListener('focus', showFull);
+        btn.addEventListener('blur', schedulePeek);
         window.addEventListener('resize', function () { place(true); });
       })();
     </script>
 
     <!-- 壳层增强：内容宽度调节 / 读后感 / 已下线功能入口隐藏（AI/听书/成就） -->
-    <script src="/assets/enhancer.js?v=0.1.21"></script>
+    <script src="/assets/enhancer.js?v=0.1.24"></script>
   </body>
 </html>

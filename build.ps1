@@ -96,7 +96,9 @@ if ($doBump) {
 
 $version = $newVersion
 $armSqlite = "$root\build-assets\node_sqlite3-linux-arm64.node"
+$x64Sqlite = "$root\build-assets\node_sqlite3-linux-x64.node"
 if (-not (Test-Path $armSqlite)) { throw "Missing arm64 sqlite3 binary: $armSqlite" }
+if (-not (Test-Path $x64Sqlite)) { throw "Missing x64 sqlite3 binary: $x64Sqlite" }
 
 $staging = Join-Path $env:TEMP "qyread-fnpack"
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
@@ -111,11 +113,14 @@ function Build-Tree($arch) {
     # staging artifacts must never be packed
     Remove-Item "$tree\build.ps1" -Force -ErrorAction SilentlyContinue
 
+    # 始终用 build-assets 中的预编译 sqlite3 二进制覆盖（避免 node_modules 里残留空/错架构文件）
     if ($arch -eq "arm") {
         Copy-Item $armSqlite "$tree\app\server\node_modules\sqlite3\build\Release\node_sqlite3.node" -Force
         $m = [System.IO.File]::ReadAllText("$tree\manifest", $Utf8NoBom)
         $m = $m -replace '(?m)^platform\s*=\s*x86', 'platform              = arm'
         [System.IO.File]::WriteAllText("$tree\manifest", $m, $Utf8NoBom)
+    } else {
+        Copy-Item $x64Sqlite "$tree\app\server\node_modules\sqlite3\build\Release\node_sqlite3.node" -Force
     }
 
     Write-Host "[build] fnpack $arch ..." -ForegroundColor Cyan

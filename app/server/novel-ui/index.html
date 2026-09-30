@@ -96,6 +96,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Micr
 .src-item .ops button{padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:transparent;font-size:12px;cursor:pointer}
 .src-item .ops .edit{color:var(--accent)}
 .src-item .ops .del{color:var(--err)}
+/* 代理设置卡片 */
+.proxy-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.proxy-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.proxy-title{font-size:14px;font-weight:700}
+.proxy-switch{position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0}
+.proxy-switch input{opacity:0;width:0;height:0}
+.proxy-slider{position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:24px;transition:.2s}
+.proxy-slider:before{content:'';position:absolute;height:18px;width:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.proxy-switch input:checked + .proxy-slider{background:var(--accent)}
+.proxy-switch input:checked + .proxy-slider:before{transform:translateX(18px)}
+.proxy-body{display:none}
+.proxy-card.on .proxy-body{display:block}
+.proxy-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.proxy-row input{flex:1;min-width:0;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px;outline:none}
+.proxy-row input:focus{border-color:var(--accent)}
+.proxy-row button{padding:8px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text);font-size:13px;cursor:pointer;white-space:nowrap}
+.proxy-row button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.proxy-hint{font-size:11px;color:var(--sub);line-height:1.5;margin-bottom:6px}
+.proxy-status{font-size:12px;min-height:16px}
+.proxy-status.ok{color:var(--ok)}
+.proxy-status.err{color:var(--err)}
 /* 书源编辑弹窗表单 */
 .src-form-row{margin-bottom:12px}
 .src-form-row label{display:block;font-size:13px;font-weight:600;margin-bottom:5px;color:var(--text)}
@@ -207,6 +228,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Micr
       <button id="srcAddBtn">➕ 添加新源</button>
       <button id="srcRefreshBtn">🔄 刷新</button>
     </div>
+
+    <!-- 代理设置 -->
+    <div class="proxy-card" id="proxyCard">
+      <div class="proxy-head">
+        <span class="proxy-title">🛰️ 下载代理</span>
+        <label class="proxy-switch">
+          <input type="checkbox" id="proxyEnabled">
+          <span class="proxy-slider"></span>
+        </label>
+      </div>
+      <div class="proxy-body">
+        <div class="proxy-row">
+          <input type="text" id="proxyUrl" placeholder="代理地址，如 http://127.0.0.1:7890">
+          <button id="proxySaveBtn" class="primary">保存</button>
+          <button id="proxyTestBtn">测试</button>
+        </div>
+        <div class="proxy-hint">启用后，所有小说搜索与下载请求将通过该代理转发。支持 HTTP/HTTPS 代理（如 Clash、V2Ray 等本地代理）。</div>
+        <div class="proxy-status" id="proxyStatus"></div>
+      </div>
+    </div>
+
     <div class="src-tip">⚠️ 下载源采用 <b>go-novel 兼容的 JSON 规则格式</b>，包含 search/book/toc/chapter 等字段（CSS 选择器）。修改请谨慎，错误规则会导致搜索/下载失败。</div>
     <div id="src-list" class="src-list"></div>
   </div>
@@ -973,6 +1015,61 @@ async function delSrc(src){
   }
 }
 
+/* ============ 代理设置 ============ */
+async function loadProxy(){
+  try{
+    const cfg = await api('/proxy');
+    const card = $('proxyCard');
+    const en = $('proxyEnabled');
+    const url = $('proxyUrl');
+    en.checked = !!cfg.enabled;
+    url.value = cfg.url || '';
+    card.classList.toggle('on', !!cfg.enabled);
+    $('proxyStatus').textContent='';
+    $('proxyStatus').className='proxy-status';
+  }catch(e){
+    // 非管理员或接口不可用时静默
+  }
+}
+function toggleProxyUI(){
+  const card = $('proxyCard');
+  card.classList.toggle('on', $('proxyEnabled').checked);
+}
+async function saveProxy(){
+  const enabled = $('proxyEnabled').checked;
+  const url = $('proxyUrl').value.trim();
+  const status = $('proxyStatus');
+  status.className='proxy-status';
+  status.textContent='保存中...';
+  try{
+    await api('/proxy', { method:'PUT', body: JSON.stringify({ enabled, url }) });
+    status.className='proxy-status ok';
+    status.textContent='✓ 已保存，搜索与下载将' + (enabled?'通过代理转发':'直连');
+  }catch(e){
+    status.className='proxy-status err';
+    status.textContent='✗ 保存失败：'+e.message;
+  }
+}
+async function testProxy(){
+  const enabled = $('proxyEnabled').checked;
+  const url = $('proxyUrl').value.trim();
+  const status = $('proxyStatus');
+  if(!enabled || !url){ status.className='proxy-status err'; status.textContent='请先填写代理地址并开启代理'; return; }
+  status.className='proxy-status';
+  status.textContent='测试中...';
+  try{
+    // 先保存再测试（测试依赖服务端已启用的配置）
+    await api('/proxy', { method:'PUT', body: JSON.stringify({ enabled:true, url }) });
+    // 用搜索接口触发一次实际外网请求（返回结果即视为代理可用）
+    const data = await api('/search?q='+encodeURIComponent('test')+'&includeProxy=1');
+    status.className='proxy-status ok';
+    status.textContent = data.total!=null ? `✓ 代理可用（返回 ${data.total} 条结果）` : '✓ 代理可用';
+  }catch(e){
+    status.className='proxy-status err';
+    status.textContent='✗ 代理不可用：'+e.message;
+  }
+}
+
 /* ============ 事件绑定 ============ */
 $('searchBtn').onclick = doSearch;
 $('kw').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
@@ -989,9 +1086,12 @@ document.querySelectorAll('.tab').forEach(t=>{
     $('view-local').style.display = tab==='local'?'':'none';
     $('view-sources').style.display = tab==='sources'?'':'none';
     if(tab==='local'){ if(!localDir && dirsInfo) localDir = saveDir || dirsInfo.defaultDir; loadLocal(); }
-    if(tab==='sources'){ loadSources(); }
+    if(tab==='sources'){ loadSources(); loadProxy(); }
   };
 });
+$('proxyEnabled').onchange = toggleProxyUI;
+$('proxySaveBtn').onclick = saveProxy;
+$('proxyTestBtn').onclick = testProxy;
 $('srcRefreshBtn').onclick = loadSources;
 $('srcAddBtn').onclick = ()=>openSrcEditor(null);
 $('srcModalClose').onclick = closeSrcModal;

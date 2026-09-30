@@ -17,7 +17,7 @@ if (!dbPath || !fs.existsSync(dbPath)) {
 
 // 懒加载 sqlite3（不要因为 require 失败让脚本崩掉）
 let Database;
-try { Database = require('sqlite3'); }
+try { Database = require('sqlite3').Database; }
 catch (e) { console.warn('[drop-tables] sqlite3 未加载:', e.message); process.exit(0); }
 
 const db = new Database(dbPath);

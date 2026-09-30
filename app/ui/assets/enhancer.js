@@ -1,4 +1,4 @@
-/*! 惬意阅读 壳层增强（v0.1.21）
+/*! 惬意阅读 壳层增强（v0.1.24）
  *  前端 bundle 为编译产物，所有增强均通过 DOM 观察外挂实现，不侵入 React 状态。
  *  功能：① 内容宽度滑块 ② 详情页读后感按钮 ③ 书架视图切换（大/中/小/列表，列表带书籍信息）
  *       ④ 阅读器外壳主题跟随 ⑤ 管理中心 AI/成就 tab 容器移除
@@ -6,6 +6,7 @@
  *       ⑨ TTS 默认使用 Edge 在线引擎 ⑩ "我的"页用户卡片禁用跳转（成就页已下线）
  *       ⑪ 阅读器白噪音背景音（白/粉/棕噪、雨声、海浪、篝火，仅阅读页显示，离开自动停止）
  *       ⑫ 书架详细列表返回自动刷新 ⑬ 白噪音按钮浮动拖拽 + 播放速度调整 + 初始居中
+ *       ⑭ 悬浮按钮靠边自动缩进（悬停/点击滑出，仅露 6px 小条）
  *  说明：AI 助手 / 成就中心 / 分享功能已下线；TTS 听书使用 Edge 在线引擎。
  */
 (function () {
@@ -1399,8 +1400,11 @@
     st.id = 'qy-wn-style';
     st.textContent =
       '#qy-wn{position:fixed;z-index:99990;font-family:inherit;-webkit-tap-highlight-color:transparent;' +
-        'transition:left .18s ease,right .18s ease,top .18s ease}' +
+        'transition:left .18s ease,right .18s ease,top .18s ease,transform .35s cubic-bezier(.4,0,.2,1)}' +
       '#qy-wn.qy-wn-dragging{transition:none}' +
+      /* 靠边自动缩进：仅露出 6px，悬停/点击时滑出 */
+      '#qy-wn.peek-left{transform:translateX(calc(-100% + 6px))}' +
+      '#qy-wn.peek-right{transform:translateX(calc(100% - 6px))}' +
       '#qy-wn .qy-wn-fab{border:none;border-radius:999px;padding:8px 14px;font-size:13px;line-height:1;color:#fff;' +
         'background:rgba(0,0,0,.55);backdrop-filter:blur(6px);box-shadow:0 2px 10px rgba(0,0,0,.28);cursor:grab;' +
         'user-select:none;-webkit-user-select:none;touch-action:none;animation:qyWnFloat 3s ease-in-out infinite}' +
@@ -1434,7 +1438,7 @@
       grid.appendChild(b);
     });
     root.querySelector('[data-qy-wn-x]').addEventListener('click', function () {
-      wnPanelOpen = false; wnRender();
+      wnPanelOpen = false; wnRender(); wnSchedulePeek();
     });
     root.querySelector('[data-qy-wn-stop]').addEventListener('click', function () { wnStop(); });
     var slider = root.querySelector('[data-qy-wn-vol]');
@@ -1455,7 +1459,19 @@
     });
 
     // 浮动按钮拖拽 + 位置持久化（复用小说下载按钮模式）
-    var WN_M = 12, WN_DRAG_THRESHOLD = 8;
+    var WN_M = 12, WN_DRAG_THRESHOLD = 8, WN_PEEK_DELAY = 2500;
+    var wnCurSide = 'right', wnPeekTimer = null;
+    function wnShowFull() {
+      root.classList.remove('peek-left', 'peek-right');
+    }
+    function wnSchedulePeek() {
+      if (wnPeekTimer) clearTimeout(wnPeekTimer);
+      if (wnPanelOpen) return;  // 面板打开时不缩进
+      wnPeekTimer = setTimeout(function () {
+        wnShowFull();
+        root.classList.add(wnCurSide === 'left' ? 'peek-left' : 'peek-right');
+      }, WN_PEEK_DELAY);
+    }
     function wnLoadPos() {
       try { return JSON.parse(localStorage.getItem(WN_KEY_POS)) || {}; } catch (e) { return {}; }
     }
@@ -1466,6 +1482,7 @@
       return Math.round(Math.max(WN_M, Math.min(top, Math.max(WN_M, max))));
     }
     function wnApplySide(side) {
+      wnCurSide = side;
       if (side === 'left') {
         root.style.left = 'max(' + WN_M + 'px, env(safe-area-inset-left))';
         root.style.right = 'auto';
@@ -1495,12 +1512,16 @@
         root.style.bottom = 'auto';
       }
       if (!animate) requestAnimationFrame(function () { root.classList.remove('qy-wn-dragging'); });
+      wnShowFull();
+      wnSchedulePeek();
     }
 
     var fab = root.querySelector('.qy-wn-fab');
     var sx, sy, startLeft, startTop, dragging, w, h;
     fab.addEventListener('pointerdown', function (e) {
       if (e.button !== undefined && e.button !== 0) return;
+      wnShowFull();
+      if (wnPeekTimer) { clearTimeout(wnPeekTimer); wnPeekTimer = null; }
       var r = root.getBoundingClientRect();
       w = r.width; h = r.height;
       sx = e.clientX; sy = e.clientY;
@@ -1536,14 +1557,20 @@
         root.classList.remove('qy-wn-dragging');
         wnApplySide(side);
         root.style.top = top + 'px';
+        wnSchedulePeek();
       } else {
         // 短按（未达拖拽阈值）切换面板
-        if (!fab.clicked) { fab.clicked = true; wnPanelOpen = !wnPanelOpen; wnRender(); setTimeout(function () { fab.clicked = false; }, 200); }
+        if (!fab.clicked) { fab.clicked = true; wnPanelOpen = !wnPanelOpen; wnRender(); wnSchedulePeek(); setTimeout(function () { fab.clicked = false; }, 200); }
       }
       sx = sy = undefined;
     }
     fab.addEventListener('pointerup', wnEndDrag);
     fab.addEventListener('pointercancel', wnEndDrag);
+    // 悬停/聚焦时完整显示，离开后重新计时缩进（面板打开时不缩进）
+    root.addEventListener('mouseenter', wnShowFull);
+    root.addEventListener('mouseleave', wnSchedulePeek);
+    fab.addEventListener('focus', wnShowFull);
+    fab.addEventListener('blur', wnSchedulePeek);
     window.addEventListener('resize', function () { wnPlace(true); });
 
     // 全部就绪后再上屏，避免中途异常残留半成品 DOM

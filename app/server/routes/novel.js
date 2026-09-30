@@ -12,6 +12,7 @@ const { fetchBookInfo, fetchToc } = require('../services/novelCrawler');
 const downloader = require('../services/novelDownloader');
 const progress = require('../services/novelProgressManager');
 const dirs = require('../services/novelDirs');
+const proxyService = require('../services/novelProxy');
 
 const { authenticateToken, AUTH_COOKIE_NAME } = require('../middleware/auth');
 const jwt = require('jsonwebtoken');
@@ -111,6 +112,31 @@ router.delete('/sources/:category/:id', authenticateToken, (req, res) => {
         res.json({ ok: true });
     } catch (e) {
         res.status(400).json({ error: '删除失败: ' + e.message });
+    }
+});
+
+// 代理配置：获取
+router.get('/proxy', authenticateToken, (req, res) => {
+    res.json(proxyService.getConfig());
+});
+
+// 代理配置：保存（仅管理员可修改）
+router.put('/proxy', authenticateToken, (req, res) => {
+    if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: '仅管理员可修改代理配置' });
+    }
+    const { enabled, url } = req.body || {};
+    if (enabled && (!url || typeof url !== 'string' || !url.trim())) {
+        return res.status(400).json({ error: '启用代理时必须填写代理地址' });
+    }
+    if (url && !/^https?:\/\//i.test(url.trim())) {
+        return res.status(400).json({ error: '代理地址需以 http:// 或 https:// 开头' });
+    }
+    try {
+        const saved = proxyService.setConfig({ enabled: !!enabled, url: url || '' });
+        res.json(saved);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
     }
 });
 

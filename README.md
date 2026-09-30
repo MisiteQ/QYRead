@@ -1,16 +1,16 @@
 # 惬意阅读 QYRead
 
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.21-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.24-blue">
   <img alt="fnOS" src="https://img.shields.io/badge/fnOS-x86%20%7C%20arm64-success">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-orange">
 </p>
 
 飞牛 fnOS 上的私人书库与阅读中心（FPK 原生应用）：**搜书、管书、看书一站搞定**。所有书籍与数据仅保存在你的 NAS 本机，不上传任何第三方服务器。
 
-> **本项目基于「落地长安 轻阅读」改造**，小说搜索下载模块整合了 [zsyo/go-novel](https://github.com/zsyo/go-novel) 的书源与爬虫逻辑，在此感谢两位作者的开源分享。
+> **本项目基于「落地长安 轻阅读」改造(搜索原作者开发的手机客户端，可以连接本系统，不过有些功能是不通用的)**，小说搜索下载模块整合了 [zsyo/go-novel](https://github.com/zsyo/go-novel) 的书源与爬虫逻辑，在此感谢两位作者的开源分享。
 
-- 当前版本：**v0.1.21**
+- 当前版本：**v0.1.24**
 - 作者：**Misite齊**
 - 适用平台：fnOS **x86 + arm64**（依赖应用中心的 Node.js v22，最低系统版本 1.1.8）
 - 默认端口：**8344**（安装向导可改）
@@ -38,7 +38,7 @@ https://github.com/MisiteQ/FnDepot
 
 ### 方式二：手动安装 FPK
 
-1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.21-x86.fpk`（x86 机型）或 `qyread-0.1.21-arm.fpk`（arm64 机型）
+1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.24-x86.fpk`（x86 机型）或 `qyread-0.1.24-arm.fpk`（arm64 机型）
 2. 飞牛 OS → **应用中心** → 左下角 **手动安装** → 选择 fpk 文件
 3. 按安装向导完成配置：
    - **端口与管理员**：应用端口（默认 **8344**）、管理员用户名与密码
@@ -62,7 +62,7 @@ https://github.com/MisiteQ/FnDepot
 ```powershell
 # 打包前先在 Linux 环境（或 WSL / fnOS）安装服务端依赖（sqlite3 为 Linux 原生模块）：
 #   cd app/server && npm install --omit=dev
-.\build.ps1                 # 自动 patch +1（0.1.21 → 0.1.22），同步 manifest / package.json / 前端 ?v=
+.\build.ps1                 # 自动 patch +1（0.1.24 → 0.1.25），同步 manifest / package.json / 前端 ?v=
 .\build.ps1 -Version 0.2.0  # 指定版本号
 .\build.ps1 -NoBump         # 不修改版本号，按 manifest 当前版本打包
 # 产物：qyread-<版本>-x86.fpk 与 qyread-<版本>-arm.fpk
@@ -118,6 +118,9 @@ build.ps1               Windows 双架构一键打包脚本
 
 | 版本 | 内容 |
 |---|---|
+| v0.1.24 | 修复 x86 机型可能因 sqlite3 原生模块为空 / 错架构导致书库数据库打不开：打包脚本对 x86 包同样强制覆盖为预编译 Linux x64 二进制（此前仅 arm 包替换）；修复卸载维护脚本 drop-tables 在新版 sqlite3 下加载失败（`require('sqlite3').Database` 取法适配） |
+| v0.1.23 | 修复 Node 22 环境下服务启动失败（ERR_INVALID_PACKAGE_CONFIG）：send 依赖的 ms@2.1.3 包内 package.json 含尾随逗号、设备残留空 package.json，已替换为合法 ms 并兜底所有空 package.json；小说下载代理设置与悬浮按钮靠边缩进功能随本版本生效 |
+| v0.1.22 | 小说下载新增「代理设置」：下载源管理页顶部可开启 HTTP/HTTPS 代理（Clash、V2Ray 等本地代理）并填写地址，启用后搜索与下载请求自动经代理转发，支持保存与一键连通性测试；阅读器内悬浮按钮（小说搜索、白噪音）停靠边缘后自动缩进仅露约 6px，悬停 / 点击再滑出，不再遮挡正文 |
 | v0.1.21 | 修复在线更新「备份当前程序失败：Permission denied」：备份目录从 `/vol1/@appcenter/qyread.bak`（qyread 用户无上级 @appcenter 写权限）改放到应用数据目录下；关于页内容容器从 `max-w-sm`(384px) 加宽到 46rem(736px)，并自动放宽被 `max-w-*` 类限制的父级容器，版面更舒展大方 |
 | v0.1.20 | 小说下载界面新增「下载源设置」管理页（第三个 tab），可在线管理 go-novel 兼容规则书源：浏览全部书源并按分类（普通 / 限流 / 不可搜索 / 代理）显示徽章，可视化编辑规则 JSON（含 search / book / toc / chapter / crawl 字段格式说明），支持新增、编辑、删除、跨分类移动书源，改动即时写回规则文件并重建搜索 / 下载索引 |
 | v0.1.19 | 优化已是最新版时「立即更新」的体验：按钮直接显示为「重新安装」，确认弹窗明确提示「当前已是最新版、重新安装同版本、版本不变、用于修复异常」，与升级场景措辞完全区分；修复潜在隐患——仅当磁盘上存在与目标版本号一致的安装包才直接安装（按版本精确匹配），残留旧版本包不会被误用导致意外降级，状态接口新增已下载包版本号 |
