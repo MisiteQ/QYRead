@@ -1,7 +1,7 @@
 # 惬意阅读 QYRead
 
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.24-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.26-blue">
   <img alt="fnOS" src="https://img.shields.io/badge/fnOS-x86%20%7C%20arm64-success">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-orange">
 </p>
@@ -10,7 +10,7 @@
 
 > **本项目基于「落地长安 轻阅读」改造(搜索原作者开发的手机客户端，可以连接本系统，不过有些功能是不通用的)**，小说搜索下载模块整合了 [zsyo/go-novel](https://github.com/zsyo/go-novel) 的书源与爬虫逻辑，在此感谢两位作者的开源分享。
 
-- 当前版本：**v0.1.24**
+- 当前版本：**v0.1.26**
 - 作者：**Misite齊**
 - 适用平台：fnOS **x86 + arm64**（依赖应用中心的 Node.js v22，最低系统版本 1.1.8）
 - 默认端口：**8344**（安装向导可改）
@@ -24,7 +24,6 @@
 - **🔊 听书**：默认 Edge 在线语音（晓晓、云希等多种音色，无需下载模型），保留本地离线引擎入口
 - **🔈 阅读白噪音**：阅读器内置白 / 粉 / 棕噪音、雨声、海浪、篝火 6 种背景音（WebAudio 实时合成，不含音频文件），可调节音量与播放速度（0.5~2 倍），按钮支持浮动呼吸动画与长按拖拽（松手吸附左右、位置持久化），仅阅读界面显示入口，退出阅读自动停止
 - **🔄 在线自动更新**：关于页可检查 GitHub Release 新版本，下载安装包到 NAS（支持镜像加速与 SHA256 校验）并一键安装重启，可开启后台自动检查安装
-- **📝 读后感**：随时为整本书撰写心得，自动统计字数与累计阅读时长
 
 ## 📦 安装
 
@@ -38,7 +37,7 @@ https://github.com/MisiteQ/FnDepot
 
 ### 方式二：手动安装 FPK
 
-1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.24-x86.fpk`（x86 机型）或 `qyread-0.1.24-arm.fpk`（arm64 机型）
+1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.26-x86.fpk`（x86 机型）或 `qyread-0.1.26-arm.fpk`（arm64 机型）
 2. 飞牛 OS → **应用中心** → 左下角 **手动安装** → 选择 fpk 文件
 3. 按安装向导完成配置：
    - **端口与管理员**：应用端口（默认 **8344**）、管理员用户名与密码
@@ -62,7 +61,7 @@ https://github.com/MisiteQ/FnDepot
 ```powershell
 # 打包前先在 Linux 环境（或 WSL / fnOS）安装服务端依赖（sqlite3 为 Linux 原生模块）：
 #   cd app/server && npm install --omit=dev
-.\build.ps1                 # 自动 patch +1（0.1.24 → 0.1.25），同步 manifest / package.json / 前端 ?v=
+.\build.ps1                 # 自动 patch +1（0.1.26 → 0.1.27），同步 manifest / package.json / 前端 ?v=
 .\build.ps1 -Version 0.2.0  # 指定版本号
 .\build.ps1 -NoBump         # 不修改版本号，按 manifest 当前版本打包
 # 产物：qyread-<版本>-x86.fpk 与 qyread-<版本>-arm.fpk
@@ -118,6 +117,7 @@ build.ps1               Windows 双架构一键打包脚本
 
 | 版本 | 内容 |
 |---|---|
+| v0.1.26 | 彻底移除已下线的「读后感」与「成就」残留代码：后端删除成就路由 / 读后感接口与相关建表逻辑，前端移除我的页成就入口、管理中心「成就配置」tab、书籍详情读后感按钮及成就提示弹窗（界面无变化，功能此前已下线）；修复启动清理脚本长期静默失败（sqlite3 构造器用法错误 + 未设 busyTimeout 导致旧表从未被删除），旧版本残留的成就 / 读后感数据表在启动后正确清理；安装说明与应用描述同步更新 |
 | v0.1.24 | 修复 x86 机型可能因 sqlite3 原生模块为空 / 错架构导致书库数据库打不开：打包脚本对 x86 包同样强制覆盖为预编译 Linux x64 二进制（此前仅 arm 包替换）；修复卸载维护脚本 drop-tables 在新版 sqlite3 下加载失败（`require('sqlite3').Database` 取法适配） |
 | v0.1.23 | 修复 Node 22 环境下服务启动失败（ERR_INVALID_PACKAGE_CONFIG）：send 依赖的 ms@2.1.3 包内 package.json 含尾随逗号、设备残留空 package.json，已替换为合法 ms 并兜底所有空 package.json；小说下载代理设置与悬浮按钮靠边缩进功能随本版本生效 |
 | v0.1.22 | 小说下载新增「代理设置」：下载源管理页顶部可开启 HTTP/HTTPS 代理（Clash、V2Ray 等本地代理）并填写地址，启用后搜索与下载请求自动经代理转发，支持保存与一键连通性测试；阅读器内悬浮按钮（小说搜索、白噪音）停靠边缘后自动缩进仅露约 6px，悬停 / 点击再滑出，不再遮挡正文 |

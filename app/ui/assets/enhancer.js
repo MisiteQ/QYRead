@@ -1,13 +1,12 @@
-/*! 惬意阅读 壳层增强（v0.1.24）
+/*! 惬意阅读 壳层增强（v0.1.26）
  *  前端 bundle 为编译产物，所有增强均通过 DOM 观察外挂实现，不侵入 React 状态。
- *  功能：① 内容宽度滑块 ② 详情页读后感按钮 ③ 书架视图切换（大/中/小/列表，列表带书籍信息）
- *       ④ 阅读器外壳主题跟随 ⑤ 管理中心 AI/成就 tab 容器移除
- *       ⑥ 落地页话术改写 ⑦ 关于页版本号同步 + 致谢信息 + 在线更新 ⑧ 阅读自动加入书架并提示
- *       ⑨ TTS 默认使用 Edge 在线引擎 ⑩ "我的"页用户卡片禁用跳转（成就页已下线）
- *       ⑪ 阅读器白噪音背景音（白/粉/棕噪、雨声、海浪、篝火，仅阅读页显示，离开自动停止）
- *       ⑫ 书架详细列表返回自动刷新 ⑬ 白噪音按钮浮动拖拽 + 播放速度调整 + 初始居中
- *       ⑭ 悬浮按钮靠边自动缩进（悬停/点击滑出，仅露 6px 小条）
- *  说明：AI 助手 / 成就中心 / 分享功能已下线；TTS 听书使用 Edge 在线引擎。
+ *  功能：① 内容宽度滑块 ② 书架视图切换（大/中/小/列表，列表带书籍信息）
+ *       ③ 阅读器外壳主题跟随 ④ 管理中心 AI tab 容器移除
+ *       ⑤ 落地页话术改写 ⑥ 关于页版本号同步 + 致谢信息 + 在线更新 ⑦ 阅读自动加入书架并提示
+ *       ⑧ TTS 默认使用 Edge 在线引擎
+ *       ⑨ 阅读器白噪音背景音（白/粉/棕噪、雨声、海浪、篝火，仅阅读页显示，离开自动停止）
+ *       ⑩ 书架详细列表返回自动刷新 ⑪ 白噪音按钮浮动拖拽 + 播放速度调整 + 初始居中
+ *  说明：AI 助手 / 成就中心 / 分享 / 读后感功能已下线；TTS 听书使用 Edge 在线引擎。
  */
 (function () {
   'use strict';
@@ -39,11 +38,6 @@
   /* ===================== 通用工具 ===================== */
   function $(s, r) { return (r || document).querySelector(s); }
   function $all(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
   function toast(msg) {
     var t = document.getElementById('qy-toast');
     if (!t) {
@@ -56,28 +50,15 @@
     clearTimeout(t._h);
     t._h = setTimeout(function () { t.classList.remove('show'); }, 2200);
   }
-  function api(url, opt) {
-    return fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' }, opt || {}))
-      .then(function (r) {
-        if (!r.ok) return r.json().catch(function () { return {}; }).then(function (e) {
-          throw new Error(e.error || ('请求失败 (' + r.status + ')'));
-        });
-        return r.status === 204 ? null : r.json();
-      });
-  }
-  function fmtDuration(sec) {
-    sec = Math.round(sec || 0);
-    if (sec < 60) return sec + ' 秒';
-    var m = Math.floor(sec / 60);
-    if (m < 60) return m + ' 分钟';
-    var h = Math.floor(m / 60), mm = m % 60;
-    return h + ' 小时' + (mm ? ' ' + mm + ' 分' : '');
-  }
-  function countWords(s) {
-    var cn = (s.match(/[一-鿿]/g) || []).length;
-    var en = (s.replace(/[一-鿿]/g, ' ').match(/[A-Za-z0-9]+/g) || []).length;
-    return cn + en;
-  }
+  (function initToastStyle() {
+    var st = document.createElement('style');
+    st.textContent =
+      '#qy-toast{position:fixed;left:50%;top:max(20px,env(safe-area-inset-top));transform:translateX(-50%) translateY(-18px);' +
+      'background:rgba(0,0,0,.82);color:#fff;padding:9px 18px;border-radius:999px;font-size:14px;z-index:10005;' +
+      'opacity:0;transition:.25s;pointer-events:none;max-width:84vw;text-align:center}' +
+      '#qy-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}';
+    document.documentElement.appendChild(st);
+  })();
 
   /* ===================== 1. 阅读内容宽度 ===================== */
   function getCw() {
@@ -134,7 +115,7 @@
     }
   }
 
-  /* ===================== 2. 详情页：读后感按钮注入 ===================== */
+  /* ===================== 2. 接口拦截：关于页版本号 + 书籍详情缓存（自动入书架用） ===================== */
   try {
     var origFetch = window.fetch;
     window.fetch = function (input) {
@@ -188,151 +169,6 @@
       return _origSend.apply(this, arguments);
     };
   } catch (e) {}
-
-  function bookFresh() {
-    var b = window.__qyBook;
-    return b && (Date.now() - b.at < 6000) ? b : null;
-  }
-
-  function tryInjectDetailActions() {
-    var b = bookFresh();
-    if (!b) return;
-    var startBtn = null;
-    var btns = $all('button, a');
-    for (var i = 0; i < btns.length; i++) {
-      var x = btns[i];
-      if (x.getAttribute('data-qy-act')) continue;
-      if (x.offsetParent === null && x.getClientRects().length === 0) continue;
-      var tx = (x.textContent || '').trim();
-      if (tx === '开始阅读' || tx === '继续阅读') {
-        var sibs = x.parentElement ? x.parentElement.querySelectorAll('button,a') : [];
-        var hasShelf = false;
-        for (var j = 0; j < sibs.length; j++) {
-          if (sibs[j].textContent.indexOf('书架') !== -1) { hasShelf = true; break; }
-        }
-        if (hasShelf) { startBtn = x; break; }
-      }
-    }
-    if (!startBtn) return;
-    var bar = startBtn.parentElement;
-    if (!bar) return;
-    if (bar.getAttribute('data-qy-book') === String(b.id)) return;
-    $all('[data-qy-act]').forEach(function (n) { n.parentNode && n.parentNode.removeChild(n); });
-
-    var reviewBtn = startBtn.cloneNode(true);
-    reviewBtn.setAttribute('data-qy-act', '1');
-    reviewBtn.textContent = '✍️ 读后感';
-    reviewBtn.removeAttribute('disabled');
-    reviewBtn.style.cursor = 'pointer';
-    if (reviewBtn.tagName === 'A') reviewBtn.setAttribute('href', 'javascript:void(0)');
-    reviewBtn.addEventListener('click', function (ev) {
-      ev.preventDefault(); ev.stopPropagation();
-      openReviewModal(b);
-    });
-    bar.appendChild(reviewBtn);
-    bar.setAttribute('data-qy-book', String(b.id));
-  }
-
-  /* ===================== 弹窗框架 ===================== */
-  var modalStyleInjected = false;
-  function injectModalStyle() {
-    if (modalStyleInjected) return;
-    modalStyleInjected = true;
-    var st = document.createElement('style');
-    st.textContent = [
-      '#qy-toast{position:fixed;left:50%;top:max(20px,env(safe-area-inset-top));transform:translateX(-50%) translateY(-18px);',
-      'background:rgba(0,0,0,.82);color:#fff;padding:9px 18px;border-radius:999px;font-size:14px;z-index:10005;',
-      'opacity:0;transition:.25s;pointer-events:none;max-width:84vw;text-align:center}',
-      '#qy-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}',
-      '.qy-mask{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:flex-end;justify-content:center}',
-      '@media(min-width:640px){.qy-mask{align-items:center}}',
-      '.qy-modal{background:#fff;color:#1f2329;width:100%;max-width:520px;max-height:88vh;overflow:auto;border-radius:18px 18px 0 0;',
-      'padding:18px 18px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,.18)}',
-      '@media(min-width:640px){.qy-modal{border-radius:18px;padding:22px}}',
-      '.qy-modal h3{margin:0 0 4px;font-size:17px}',
-      '.qy-modal .qy-sub{color:#8a9099;font-size:12.5px;margin-bottom:12px;word-break:break-all}',
-      '.qy-modal textarea{width:100%;min-height:180px;border:1px solid #e3e6ea;border-radius:12px;padding:12px;font-size:15px;',
-      'line-height:1.8;resize:vertical;outline:none;font-family:inherit;box-sizing:border-box;color:inherit;background:transparent}',
-      '.qy-modal textarea:focus{border-color:#3370ff}',
-      '.qy-modal .qy-row{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}',
-      '.qy-modal .qy-stat{flex:1;color:#8a9099;font-size:12.5px;min-width:130px}',
-      '.qy-btn{border:none;border-radius:999px;padding:9px 18px;font-size:14px;cursor:pointer;font-family:inherit}',
-      '.qy-btn-primary{background:#3370ff;color:#fff}',
-      '.qy-btn-ghost{background:#f2f3f5;color:#4e5969}',
-      '.qy-btn-danger{background:transparent;color:#e5484d;border:1px solid #f0c6c8}',
-      '.qy-link{color:#3370ff;font-size:13px;text-decoration:none}',
-      '@media(prefers-color-scheme:dark){',
-      '.qy-modal{background:#222326;color:#e8e6e1;box-shadow:0 -8px 30px rgba(0,0,0,.5)}',
-      '.qy-btn-ghost{background:#2f3033;color:#c9ccd2}}'
-    ].join('');
-    document.documentElement.appendChild(st);
-  }
-  function openModal(innerHtml) {
-    injectModalStyle();
-    var mask = document.createElement('div');
-    mask.className = 'qy-mask';
-    var m = document.createElement('div');
-    m.className = 'qy-modal';
-    m.innerHTML = innerHtml;
-    mask.appendChild(m);
-    mask.addEventListener('click', function (e) { if (e.target === mask) close(); });
-    function close() { mask.parentNode && mask.parentNode.removeChild(mask); document.removeEventListener('keydown', onKey); }
-    function onKey(e) { if (e.key === 'Escape') close(); }
-    document.addEventListener('keydown', onKey);
-    document.body.appendChild(mask);
-    return { mask: mask, root: m, close: close };
-  }
-
-  /* ---------- 读后感弹窗 ---------- */
-  function openReviewModal(b) {
-    var title = (b.data && (b.data.title || b.data.name)) || ('书籍 #' + b.id);
-    var ui = openModal(
-      '<h3>✍️ 读后感</h3>' +
-      '<div class="qy-sub">《' + esc(title) + '》　心得随时保存</div>' +
-      '<textarea placeholder="记录你对这本书的感想、收获与思考…"></textarea>' +
-      '<div class="qy-row"><span class="qy-stat">加载中…</span>' +
-      '<button class="qy-btn qy-btn-danger" data-act="del">删除</button>' +
-      '<button class="qy-btn qy-btn-primary" data-act="save">保存</button></div>' +
-      '<div class="qy-row" style="justify-content:space-between">' +
-      '<a class="qy-link" href="/api/extra/reviews/page" target="_blank">📚 查看全部读后感</a></div>'
-    );
-    var ta = ui.root.querySelector('textarea'), stat = ui.root.querySelector('.qy-stat');
-    function refreshStat(extra) { stat.textContent = '字数 ' + countWords(ta.value) + (extra ? '　' + extra : ''); }
-
-    var readingText = '';
-    Promise.all([
-      api('/api/extra/reviews/' + b.id).catch(function () { return { content: '' }; }),
-      api('/api/stats/reading-progress?limit=300').catch(function () { return []; })
-    ]).then(function (rs) {
-      var review = rs[0] || {}, prog = rs[1] || [];
-      ta.value = review.content || '';
-      var item = null;
-      if (Array.isArray(prog)) {
-        for (var i = 0; i < prog.length; i++) {
-          if (prog[i] && (prog[i].book_id === b.id || prog[i].id === b.id)) { item = prog[i]; break; }
-        }
-      }
-      var sec = item ? (item.total_reading_time != null ? item.total_reading_time : item.reading_time) : 0;
-      readingText = sec ? '累计阅读 ' + fmtDuration(sec) : '暂无阅读时长记录';
-      refreshStat(readingText);
-    });
-    ta.addEventListener('input', function () { refreshStat(readingText); });
-
-    ui.root.querySelector('[data-act="save"]').addEventListener('click', function () {
-      var btn = this; btn.disabled = true;
-      api('/api/extra/reviews/' + b.id, { method: 'PUT', body: JSON.stringify({ content: ta.value }) })
-        .then(function () { toast('读后感已保存'); ui.close(); })
-        .catch(function (e) { toast(e.message); btn.disabled = false; });
-    });
-    ui.root.querySelector('[data-act="del"]').addEventListener('click', function () {
-      if (!ta.value.trim() || confirm('确定删除这篇读后感？')) {
-        api('/api/extra/reviews/' + b.id, { method: 'DELETE' })
-          .then(function () { toast('已删除'); ui.close(); })
-          .catch(function (e) { toast(e.message); });
-      }
-    });
-    setTimeout(function () { ta.focus(); }, 60);
-  }
 
   /* ===================== 3. 书架视图切换（按 bundle 真实 DOM 重写，v0.1.4） =====================
    * 真实结构（混淆 bundle 解出）：
@@ -554,63 +390,6 @@
     });
     window.addEventListener('popstate', function () { setTimeout(checkAutoShelf, 0); });
   } catch (e) {}
-
-  /* ===================== 4c. “我的”页用户卡片禁用点击（原跳转成就页，后端已移除会崩溃） ===================== */
-  (function initProfileStyle() {
-    var st = document.createElement('style');
-    st.id = 'qy-profile-style';
-    st.textContent =
-      '[data-qy-profile]{cursor:default!important}' +
-      '[data-qy-profile]:active{transform:none!important}';
-    document.documentElement.appendChild(st);
-  })();
-  // 判断一个元素是不是“我的”页顶部的用户大卡片：
-  // 类名带 rounded-[20px] + justify-between，且卡片文本里含“已阅读 N 分钟”。
-  function isProfileCard(el) {
-    if (!el || el.nodeType !== 1) return false;
-    var cn = el.className || '';
-    if (typeof cn !== 'string') cn = (el.getAttribute('class') || '');
-    if (cn.indexOf('rounded-[20px]') === -1 || cn.indexOf('justify-between') === -1) return false;
-    return /已阅读\s*\d+/.test(el.textContent || '');
-  }
-  // 双保险：document 捕获阶段一次性常驻监听，点击时实时识别并拦截，
-  // 不依赖扫描标记时机，React 重渲染换了节点也照样拦住（先于 React 根节点的合成事件）。
-  document.addEventListener('click', function (e) {
-    var node = e.target;
-    for (var i = 0; i < 8 && node && node !== document.body; i++) {
-      if (node.nodeType === 1 && node.hasAttribute && node.hasAttribute('data-qy-profile')) {
-        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-        return;
-      }
-      if (node.nodeType === 1 && isProfileCard(node)) {
-        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-        return;
-      }
-      node = node.parentElement;
-    }
-  }, true);
-  function neutralizeProfileCard() {
-    // 用 TreeWalker 找“已阅读 N…”文本节点（它可能在 span/div 内，且可能有兄弟元素，不能只查 span）
-    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
-    var n, hits = [];
-    while ((n = walker.nextNode())) {
-      if (/已阅读\s*\d+/.test(n.nodeValue || '')) hits.push(n);
-    }
-    hits.forEach(function (textNode) {
-      var card = textNode.parentElement, found = null;
-      for (var k = 0; k < 6 && card; k++) {
-        card = card.parentElement;
-        if (card && isProfileCard(card)) { found = card; break; }
-      }
-      if (!found || found.getAttribute('data-qy-profile')) return;
-      found.setAttribute('data-qy-profile', '1');
-      // 卡片自身再绑一道捕获拦截（document 级监听之外的冗余保险）
-      found.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); }, true);
-      // 右侧 “>” 箭头（bundle 里是 w-5 h-5 的 svg）一并隐藏
-      var chev = found.lastElementChild;
-      if (chev && chev.tagName === 'SVG') chev.style.setProperty('display', 'none', 'important');
-    });
-  }
 
   /* ===================== 4d. 关于页：致谢上游项目 ===================== */
   function widenAboutContainers(root, box) {
@@ -1616,9 +1395,9 @@
     emit();
   })();
 
-  /* ===================== 5. AI / 成就中心真删（v0.1.2） ===================== */
+  /* ===================== 5. AI 中心真删（v0.1.2） ===================== */
   // 精确匹配的独立入口文本（移除了 '语音配置'——TTS 恢复后继续保留；保留了 AI 相关）
-  var CONCEAL_EXACT = ['我的成就', '阅读洞察', 'AI记忆管理', 'AI配置', '成就配置', 'AI 智能语境解析', 'AI补全', 'AI补全中…', 'AI补全成功'];
+  var CONCEAL_EXACT = ['阅读洞察', 'AI记忆管理', 'AI配置', 'AI 智能语境解析', 'AI补全', 'AI补全中…', 'AI补全成功'];
   // 前缀匹配：严格限定只匹配 AI 相关，避免误伤其他"对话"tab 或带"AI"字的正常功能
   var CONCEAL_PREFIX = ['AI补全'];
 
@@ -1668,9 +1447,6 @@
       if (t.indexOf('AI 听书与批注笔记') !== -1 || t.indexOf('AI助手、批注笔记') !== -1) {
         p.setAttribute('data-qy-land', '1');
         p.textContent = '飞牛上的私人书库与阅读中心：多格式书库管理、小说搜索下载、沉浸阅读与批注笔记，所有数据仅保存在你的 NAS 本机。';
-      } else if (t.indexOf('成就系统与一键分享') !== -1 || t.indexOf('AI助手、成就、分享') !== -1 || t.indexOf('成就 / 分享') !== -1) {
-        p.setAttribute('data-qy-land', '1');
-        p.textContent = '飞牛上的私人书库与阅读中心：多格式书库管理、小说搜索下载、沉浸阅读、AI听书与批注笔记，所有数据仅保存在你的 NAS 本机。';
       }
     }
   }
@@ -1684,8 +1460,7 @@
     var n;
     while ((n = walker.nextNode())) {
       var raw = n.nodeValue;
-      if (!raw || (raw.indexOf('A') === -1 && raw.indexOf('我') === -1 &&
-          raw.indexOf('阅') === -1 && raw.indexOf('成') === -1)) continue;
+      if (!raw || (raw.indexOf('A') === -1 && raw.indexOf('阅') === -1)) continue;
       var s = raw.trim();
       if (!s) continue;
       var hit = CONCEAL_EXACT.indexOf(s) !== -1;
@@ -1695,7 +1470,7 @@
       if (!pe) continue;
       var inContext = !!(pe.closest && (pe.closest('[role="tablist"]') || pe.closest('[class*="ManagementCenter"]') || pe.closest('[class*="management"]') || pe.closest('[class*="settings"]') || pe.closest('[class*="Settings"]')));
       if (hit && inContext) hits.push(pe);
-      // 精确匹配且文本短的直接全局隐藏（成就 / AI配置 这种）
+      // 精确匹配且文本短的直接全局隐藏（AI配置 这种）
       else if (hit && s.length <= 12) hits.push(pe);
     }
     for (var i3 = 0; i3 < hits.length; i3++) concealTabButton(hits[i3]);
@@ -1709,10 +1484,8 @@
     requestAnimationFrame(function () {
       pending = false;
       try { tryInjectWidthRow(document); } catch (e) {}
-      try { tryInjectDetailActions(); } catch (e) {}
       try { tryInjectShelfSwitch(); } catch (e) {}
       try { enrichListMeta(); } catch (e) {}
-      try { neutralizeProfileCard(); } catch (e) {}
       try { injectAboutCredit(); } catch (e) {}
       try { injectUpdatePanel(); } catch (e) {}
       try { scanConcealEntries(document.body); } catch (e) {}

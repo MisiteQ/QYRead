@@ -147,10 +147,10 @@ schedule_post_start() {
             nohup bash -c "sleep 10; exec node '${BOOTSTRAP_JS}'" </dev/null >> "${LOG_FILE}" 2>&1 &
         fi
     fi
-    # 启动后清理 AI / 成就数据表（sleep 10s 保守等待 initDatabase 完成所有表创建和迁移）
+    # 启动后清理旧版本遗留数据表（AI / 成就 / 读后感；sleep 10s 保守等待 initDatabase 完成所有表创建和迁移）
     DROP_JS="${TRIM_APPDEST}/server/drop-tables.js"
     if [ -f "$DROP_JS" ]; then
-        log_msg "AI / Achievement table cleanup scheduled (post-startup)"
+        log_msg "Legacy table cleanup scheduled (post-startup)"
         nohup bash -c "sleep 10; exec node '${DROP_JS}'" </dev/null >> "${LOG_FILE}" 2>&1 &
     fi
 }
