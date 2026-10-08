@@ -1,4 +1,4 @@
-/*! 惬意阅读 壳层增强（v0.1.27）
+/*! 惬意阅读 壳层增强（v0.1.28）
  *  前端 bundle 为编译产物，所有增强均通过 DOM 观察外挂实现，不侵入 React 状态。
  *  功能：① 内容宽度滑块 ② 书架视图切换（大/中/小/列表，列表带书籍信息）
  *       ③ 阅读器外壳主题跟随 ④ 管理中心 AI tab 容器移除
@@ -6,6 +6,7 @@
  *       ⑧ TTS 默认使用 Edge 在线引擎
  *       ⑨ 阅读器白噪音背景音（白/粉/棕噪、雨声、海浪、篝火，仅阅读页显示，离开自动停止）
  *       ⑩ 书架详细列表返回自动刷新 ⑪ 白噪音按钮浮动拖拽 + 播放速度调整 + 初始居中
+ *       ⑫ 书架封面/作者自动联网补全（内嵌封面优先，无内嵌时书源搜索，只填空缺字段）
  *  说明：AI 助手 / 成就中心 / 分享 / 读后感功能已下线；TTS 听书使用 Edge 在线引擎。
  */
 (function () {
@@ -819,6 +820,7 @@
           shelfMetaEmptyRetries = 0;
         }
         try { enrichListMeta(); } catch (e) {}
+        try { maybeAutoEnrich(); } catch (e) {}
       });
   }
   function truncate(s, n) {
@@ -936,6 +938,104 @@
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);
   })();
+
+  /* ===================== 4h. 书架封面/作者自动联网补全（内嵌优先，书源搜索兜底） =====================
+   * 依赖服务端 /api/extra/books/enrich-missing：EPUB/MOBI/CBZ 等内嵌封面直接提取入库，
+   * TXT 等无内嵌时按书名（剥扩展名/括号后缀）做书源聚合搜索，书名严格匹配后才写入封面与作者；
+   * 只填空缺字段（作者「佚名/未知」等占位视为缺失），绝不覆盖已有数据。
+   */
+  var ENRICH_DONE_KEY = 'qy_enrich_done_ids';
+  var ENRICH_REASK_MS = 10 * 60 * 1000; // 一轮无果后 10 分钟内不重复请求
+  var ENRICH_AUTHOR_PH = /^\s*(佚名|未知(作者)?|unknown|暂无|未填写|待补充|无|n\/a|na|null|undefined|[-—_]+)\s*$/i;
+  var _enrichBusy = false, _enrichLastDone = 0;
+  function enrichDoneIds() {
+    try { return JSON.parse(sessionStorage.getItem(ENRICH_DONE_KEY) || '[]'); } catch (e) { return []; }
+  }
+  function markEnrichDone(id) {
+    try {
+      var arr = enrichDoneIds();
+      if (arr.indexOf(String(id)) === -1) {
+        arr.push(String(id));
+        sessionStorage.setItem(ENRICH_DONE_KEY, JSON.stringify(arr));
+      }
+    } catch (e) {}
+  }
+  function authorMissingVal(a) {
+    return !a || ENRICH_AUTHOR_PH.test(String(a));
+  }
+  // 已补全封面的卡片 img 换缓存戳（React 重渲染可能滞后，延时补打几次）
+  function bumpCoverImgs(ids) {
+    var set = {};
+    (ids || []).forEach(function (id) { set[String(id)] = 1; });
+    $all('img[src*="/cover"]').forEach(function (img) {
+      var m = /\/api\/books\/(\d+)\/cover/.exec(img.src) || /book_id=(\d+)/.exec(img.src);
+      if (!m || !set[m[1]]) return;
+      img.src = img.src.split('?')[0] + '?t=' + Date.now();
+    });
+  }
+  function maybeAutoEnrich() {
+    if (_enrichBusy || !shelfMetaMap) return;
+    var missing = [], seen = {};
+    shelfMetaMap.forEach(function (b, key) {
+      if (!b || b.id == null || seen[b.id]) return;
+      if (String(key) !== String(b.id)) return; // 只统计以 id 为主键的条目，避免标题 key 重复
+      seen[b.id] = 1;
+      if (!b.cover || authorMissingVal(b.author)) missing.push(b.id);
+    });
+    if (!missing.length) return;
+    var done = {};
+    enrichDoneIds().forEach(function (id) { done[String(id)] = 1; });
+    var todo = missing.filter(function (id) { return !done[String(id)]; });
+    if (!todo.length) return;
+    if (Date.now() - _enrichLastDone < ENRICH_REASK_MS) return;
+    _enrichBusy = true;
+    var token = localStorage.getItem('lr_token') || localStorage.getItem('token') || '';
+    var allCovers = [], allAuthors = [];
+    function postChunk(ids) {
+      return fetch('/api/extra/books/enrich-missing', {
+        method: 'POST',
+        credentials: 'include',
+        headers: Object.assign(
+          { 'Content-Type': 'application/json' },
+          token ? { Authorization: 'Bearer ' + token } : {}
+        ),
+        body: JSON.stringify({ ids: ids, limit: ids.length })
+      }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+    }
+    function step() {
+      var chunk = todo.splice(0, 50);
+      if (!chunk.length) return Promise.resolve();
+      toast('正在联网补全封面/作者…（剩余 ' + (todo.length + chunk.length) + ' 本）');
+      return postChunk(chunk).then(function (s) {
+        if (s) {
+          (s.results || []).forEach(function (r) {
+            if (!r || !r.ok) return;
+            markEnrichDone(r.bookId);
+            if (r.cover_added) allCovers.push(r.bookId);
+            if (r.author_added) allAuthors.push(r.bookId);
+          });
+          // 未命中的也标记，避免每次打开书架都重复搜索
+          chunk.forEach(function (id) { markEnrichDone(id); });
+        }
+        return step();
+      });
+    }
+    step().then(function () {
+      _enrichBusy = false;
+      _enrichLastDone = Date.now();
+      if (allCovers.length || allAuthors.length) {
+        toast('已联网补全 ' + allCovers.length + ' 本封面、' + allAuthors.length + ' 位作者');
+        // 清缓存刷新书架数据，并给已补全封面的卡片 img 换缓存戳
+        try { sessionStorage.removeItem(BS_CACHE_KEY); } catch (e) {}
+        shelfMetaMap = null; shelfMetaAt = 0; shelfMetaLoading = false;
+        _scheduleShelfRefresh(300);
+        setTimeout(function () { bumpCoverImgs(allCovers); }, 1600);
+        setTimeout(function () { bumpCoverImgs(allCovers); }, 4000);
+      } else {
+        toast('书源未找到缺失书籍的封面/作者，已保持原样');
+      }
+    }).catch(function () { _enrichBusy = false; });
+  }
 
   /* ===================== 4g. 阅读器白噪音（仅 /read/:id 页面，WebAudio 纯合成，无音频文件） ===================== */
   var WN_KEY_SOUND = 'qy_wn_sound';

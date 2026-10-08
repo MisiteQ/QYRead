@@ -1,7 +1,7 @@
 # 惬意阅读 QYRead
 
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.27-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.28-blue">
   <img alt="fnOS" src="https://img.shields.io/badge/fnOS-x86%20%7C%20arm64-success">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-orange">
 </p>
@@ -10,7 +10,7 @@
 
 > **本项目基于「落地长安 轻阅读」改造(搜索原作者开发的手机客户端，可以连接本系统，不过有些功能是不通用的)**，小说搜索下载模块整合了 [zsyo/go-novel](https://github.com/zsyo/go-novel) 的书源与爬虫逻辑，在此感谢两位作者的开源分享。
 
-- 当前版本：**v0.1.27**
+- 当前版本：**v0.1.28**
 - 作者：**Misite齊**
 - 适用平台：fnOS **x86 + arm64**（依赖应用中心的 Node.js v22，最低系统版本 1.1.8）
 - 默认端口：**8344**（安装向导可改）
@@ -18,7 +18,7 @@
 
 ## ✨ 功能
 
-- **📚 多格式书库**：TXT / EPUB / MOBI / AZW3 / PDF / CBZ / CBR / CB7，拖拽批量导入，自动识别书名、作者、出版社；书架支持 **大封面 / 中封面 / 小封面 / 详细列表** 四种视图（详细列表显示作者、读到的章节与阅读进度），公共书库 + 个人书库、收藏夹、搜索排序、阅读统计
+- **📚 多格式书库**：TXT / EPUB / MOBI / AZW3 / PDF / CBZ / CBR / CB7，拖拽批量导入，自动识别书名、作者、出版社；**封面与作者自动补全**（优先用书籍内嵌封面与自带信息，缺失时自动按书名在聚合书源网络搜索，只填空缺不覆盖已有数据）；书架支持 **大封面 / 中封面 / 小封面 / 详细列表** 四种视图（详细列表显示作者、读到的章节与阅读进度），公共书库 + 个人书库、收藏夹、搜索排序、阅读统计
 - **🔍 小说搜索下载**（整合 go-novel）：聚合多个书源搜索小说，一键下载 EPUB / TXT 自动入库；下载文件夹可自由选择（默认你设置的书籍文件夹，选新文件夹会自动注册为个人书库）；全局任务面板实时显示阶段与百分比，支持 **暂停 / 继续 / 取消**，刷新页面自动恢复，书源卡死的「幽灵任务」60 秒内自动判失败并清理；已下载文件支持另存、删除与打开所在文件夹
 - **📖 沉浸阅读**：目录导航、仿真翻页 / 上下滚动、字体字号行距边距与多款主题随心设置（切换主题时非阅读区外壳背景同步），划线高亮、批注笔记，阅读进度自动保存
 - **🔊 听书**：默认 Edge 在线语音（晓晓、云希等多种音色，无需下载模型），保留本地离线引擎入口
@@ -37,7 +37,7 @@ https://github.com/MisiteQ/FnDepot
 
 ### 方式二：手动安装 FPK
 
-1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.27-x86.fpk`（x86 机型）或 `qyread-0.1.27-arm.fpk`（arm64 机型）
+1. 到 [Releases](https://github.com/MisiteQ/QYRead/releases) 按 NAS 架构下载：`qyread-0.1.28-x86.fpk`（x86 机型）或 `qyread-0.1.28-arm.fpk`（arm64 机型）
 2. 飞牛 OS → **应用中心** → 左下角 **手动安装** → 选择 fpk 文件
 3. 按安装向导完成配置：
    - **端口与管理员**：应用端口（默认 **8344**）、管理员用户名与密码
@@ -61,7 +61,7 @@ https://github.com/MisiteQ/FnDepot
 ```powershell
 # 打包前先在 Linux 环境（或 WSL / fnOS）安装服务端依赖（sqlite3 为 Linux 原生模块）：
 #   cd app/server && npm install --omit=dev
-.\build.ps1                 # 自动 patch +1（0.1.27 → 0.1.28），同步 manifest / package.json / 前端 ?v=
+.\build.ps1                 # 自动 patch +1（0.1.28 → 0.1.29），同步 manifest / package.json / 前端 ?v=
 .\build.ps1 -Version 0.2.0  # 指定版本号
 .\build.ps1 -NoBump         # 不修改版本号，按 manifest 当前版本打包
 # 产物：qyread-<版本>-x86.fpk 与 qyread-<版本>-arm.fpk
@@ -117,6 +117,7 @@ build.ps1               Windows 双架构一键打包脚本
 
 | 版本 | 内容 |
 |---|---|
+| v0.1.28 | 书架封面与作者自动补全：导入后优先提取 EPUB/MOBI/AZW3/漫画等文件的内嵌封面与自带作者；TXT 等无内嵌信息的书籍自动按书名在聚合书源网络搜索（书名严格匹配，避免张冠李戴），命中后下载封面并补全作者；只填写空缺字段（「佚名/未知」等占位视为缺失），绝不覆盖已有数据；打开书架即后台自动处理，补全后即时刷新，搜不到保持原样 |
 | v0.1.27 | 应用介绍新增「请给书籍路径添加权限」重要提示：安装后需到 fnOS 应用中心 → 惬意阅读 → 权限（存储空间访问权限）中，把现有书库 / 新增书库目录 / 小说下载目录逐一授权，避免书籍无法导入打开、下载另存失败或书库为空 |
 | v0.1.26 | 彻底移除已下线的「读后感」与「成就」残留代码：后端删除成就路由 / 读后感接口与相关建表逻辑，前端移除我的页成就入口、管理中心「成就配置」tab、书籍详情读后感按钮及成就提示弹窗（界面无变化，功能此前已下线）；修复启动清理脚本长期静默失败（sqlite3 构造器用法错误 + 未设 busyTimeout 导致旧表从未被删除），旧版本残留的成就 / 读后感数据表在启动后正确清理；安装说明与应用描述同步更新 |
 | v0.1.24 | 修复 x86 机型可能因 sqlite3 原生模块为空 / 错架构导致书库数据库打不开：打包脚本对 x86 包同样强制覆盖为预编译 Linux x64 二进制（此前仅 arm 包替换）；修复卸载维护脚本 drop-tables 在新版 sqlite3 下加载失败（`require('sqlite3').Database` 取法适配） |
