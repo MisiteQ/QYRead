@@ -84,7 +84,10 @@ async function synthesize({ text, speakerId, speed, engine }) {
     const voice = speakerId || 'zh-CN-XiaoxiaoNeural';
     try {
         // 1) 设置语音和输出格式（每次 toStream 前必须 setMetadata，否则沿用上次的）
-        await _edge.setMetadata(voice, MP3_FMT);
+        // 第三个参数须传空对象：msedge-tts setMetadata 内部会读 metadataOptions.voiceLocale，
+        // 不传时第一次因 voiceLocale 未设而短路无碍，但第二次起 voiceLocale 已有值导致短路失效，
+        // 访问 undefined.voiceLocale 抛 "Cannot read properties of undefined (reading 'voiceLocale')"
+        await _edge.setMetadata(voice, MP3_FMT, {});
         // 2) 流式合成
         const { audioStream } = _edge.toStream(text);
         const audio = await streamToBuffer(audioStream);
