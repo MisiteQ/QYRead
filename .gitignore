@@ -36,3 +36,4 @@ desktop.ini
 
 # ===== fnpack 临时构建树 =====
 .qyread-fnpack/
+test_*.sh
