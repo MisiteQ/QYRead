@@ -250,7 +250,9 @@ async function searchBySource(source, keyword, limit = 10) {
                 wordCount: extractFromNode(el, s.wordCount),
                 status: extractFromNode(el, s.status),
                 intro: extractFromNode(el, s.intro),
-                bookUrl: bookUrl || '',
+                // 书源常返回相对路径（如 /txt_1/2163.html），必须基于搜索页 URL 补全为绝对地址，
+                // 否则后续下载时 Node fetch 会抛 “Failed to parse URL”
+                bookUrl: bookUrl ? resolveUrl(bookUrl, finalUrl) : '',
             });
             if (results.length >= limit) break;
         }
@@ -287,6 +289,10 @@ function resolveUrl(href, base) {
 
 // 获取书籍详情
 async function fetchBookInfo(source, bookUrl, signal = null) {
+    // 兜底：相对路径一律按书源首页补全为绝对 URL，避免 Node fetch “Failed to parse URL”
+    if (bookUrl && !/^https?:\/\//i.test(bookUrl)) {
+        bookUrl = resolveUrl(bookUrl, source.url || '');
+    }
     const { html, finalUrl } = await fetchHtml(bookUrl, { cookies: source.search?.cookies, signal });
     const dom = new JSDOM(html, { url: finalUrl });
     const doc = dom.window.document;

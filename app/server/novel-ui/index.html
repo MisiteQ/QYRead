@@ -732,8 +732,8 @@ async function taskControl(op, taskId, btn){
 }
 
 function applyTaskEvent(d){
-  // 本页面从未展示过的任务推来取消事件（例如恢复时主动清掉的僵尸任务），不再加回面板
-  if(!tasks.has(d.taskId) && (d.status==='cancelling'||d.status==='cancelled')) return;
+  // 本页面从未展示过的任务推来终结事件（例如恢复时主动清掉的僵尸任务、服务端超时巡检判死的旧任务），不再加回面板
+  if(!tasks.has(d.taskId) && (isEnded(d) || d.status==='cancelling')) return;
   const exist = tasks.get(d.taskId) || {};
   const merged = Object.assign({}, exist, d);
   // 完成事件中的结果字段

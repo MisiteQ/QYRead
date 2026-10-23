@@ -1,6 +1,6 @@
-/*! 惬意阅读 壳层增强（v0.1.28）
+/*! 惬意阅读 壳层增强（v0.1.30）
  *  前端 bundle 为编译产物，所有增强均通过 DOM 观察外挂实现，不侵入 React 状态。
- *  功能：① 内容宽度滑块 ② 书架视图切换（大/中/小/列表，列表带书籍信息）
+ *  功能：① 内容宽度滑块 + 上下边距滑块（挖孔屏防遮挡） ② 书架视图切换（大/中/小/列表，列表带书籍信息）
  *       ③ 阅读器外壳主题跟随 ④ 管理中心 AI tab 容器移除
  *       ⑤ 落地页话术改写 ⑥ 关于页版本号同步 + 致谢信息 + 在线更新 ⑦ 阅读自动加入书架并提示
  *       ⑧ TTS 默认使用 Edge 在线引擎
@@ -15,8 +15,10 @@
   window.__qyEnhancerLoaded = true;
 
   var LS_CW = 'lr_reader_contentWidth';
+  var LS_VM = 'lr_reader_vMargin'; // 上下边距（px），手机全屏阅读时避开挖孔/刘海
   var LS_SHELF_VIEW = 'qy_shelf_view'; // large | medium | small | list
   var CW_MIN = 560, CW_MAX = 1600, CW_STEP = 20, CW_DEFAULT = 960;
+  var VM_MIN = 0, VM_MAX = 160, VM_STEP = 2, VM_DEFAULT = 0;
 
   /* ===================== 版本号（从本脚本的 ?v= 戳读取，build 时自动同步） ===================== */
   var QY_VER = '';
@@ -113,6 +115,65 @@
       });
       input.addEventListener('click', function (e) { e.stopPropagation(); });
       host.insertBefore(clone, row.nextSibling);
+    }
+  }
+
+  /* ===================== 1b. 上下边距（挖孔屏/刘海防遮挡） ===================== */
+  function getVm() {
+    var v = parseInt(localStorage.getItem(LS_VM), 10);
+    return (!isNaN(v) && v >= VM_MIN && v <= VM_MAX) ? v : VM_DEFAULT;
+  }
+  function applyVm(v) {
+    document.documentElement.style.setProperty('--lr-vm', v + 'px');
+  }
+  (function initVmStyle() {
+    var st = document.createElement('style');
+    st.id = 'qy-vm-style';
+    st.textContent =
+      ':root{--lr-vm:' + VM_DEFAULT + 'px}' +
+      /* 正文容器内联样式只设置了 paddingLeft/Right，padding-top/bottom 可安全注入；
+         滚动/横翻/仿真三种翻页模式共用 .chapter-article，统一生效 */
+      '.chapter-article{padding-top:var(--lr-vm) !important;padding-bottom:var(--lr-vm) !important;}';
+    document.documentElement.appendChild(st);
+    applyVm(getVm());
+  })();
+
+  function tryInjectVMarginRow(rootNode) {
+    var scope = rootNode && rootNode.querySelectorAll ? rootNode : document;
+    var spans = $all('span', scope);
+    for (var i = 0; i < spans.length; i++) {
+      var sp = spans[i];
+      if (sp.textContent.trim() !== '左右边距' || sp.children.length > 0) continue;
+      var row = sp;
+      for (var k = 0; k < 6 && row; k++) {
+        row = row.parentElement;
+        if (row && row.querySelector('input[type="range"]')) break;
+      }
+      if (!row) continue;
+      var host = row.parentElement;
+      if (!host || host.querySelector('[data-qy-vm]')) continue;
+
+      var clone = row.cloneNode(true);
+      clone.setAttribute('data-qy-vm', '1');
+      var labels = clone.querySelectorAll('span');
+      if (labels[0]) labels[0].textContent = '上下边距';
+      var valLabel = labels[labels.length - 1];
+      var input = clone.querySelector('input[type="range"]');
+      input.min = VM_MIN; input.max = VM_MAX; input.step = VM_STEP;
+      input.value = getVm();
+      input.setAttribute('aria-label', '上下边距');
+      function syncLabel() { if (valLabel) valLabel.textContent = input.value + 'px'; }
+      syncLabel();
+      input.addEventListener('input', function () {
+        var v = parseInt(input.value, 10);
+        localStorage.setItem(LS_VM, String(v));
+        applyVm(v);
+        syncLabel();
+      });
+      input.addEventListener('click', function (e) { e.stopPropagation(); });
+      /* 固定显示在「内容宽度」之后，保证两个增强行顺序稳定 */
+      var cwRow = host.querySelector('[data-qy-cw]');
+      host.insertBefore(clone, cwRow ? cwRow.nextSibling : row.nextSibling);
     }
   }
 
@@ -1584,6 +1645,7 @@
     requestAnimationFrame(function () {
       pending = false;
       try { tryInjectWidthRow(document); } catch (e) {}
+      try { tryInjectVMarginRow(document); } catch (e) {}
       try { tryInjectShelfSwitch(); } catch (e) {}
       try { enrichListMeta(); } catch (e) {}
       try { injectAboutCredit(); } catch (e) {}
